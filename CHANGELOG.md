@@ -1,3 +1,7 @@
+### 1.0.4: 2026-08-17
+
+* Name the resource in discovery metadata
+
 ### 1.0.3: 2026-08-17
 
 * Advertise the icon in the initialize response

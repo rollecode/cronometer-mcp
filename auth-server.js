@@ -143,28 +143,14 @@ function cors(req, res, next) {
 
 // --- discovery -------------------------------------------------------------
 
-// RFC 9728 defines resource_name but no logo field, and RFC 8414 has none
-// either. Clients still have to badge a connector with something, so the
-// plausible spellings are all advertised alongside the standard fields, which
-// both documents permit. A client that wants none of them ignores them.
-const ICON_URL = `${ISSUER}/icon.png`;
-const DISPLAY_NAME = 'Cronometer';
-const brand = {
-  resource_name: DISPLAY_NAME,
-  client_name: DISPLAY_NAME,
-  logo_uri: ICON_URL,
-  resource_logo_uri: ICON_URL,
-  icon_uri: ICON_URL,
-  icons: [{ src: ICON_URL, mimeType: 'image/png', sizes: ['256x256'] }],
-};
-
 const resourceMetadata = {
   resource: RESOURCE,
   authorization_servers: [ISSUER],
   bearer_methods_supported: ['header'],
   scopes_supported: ['cronometer'],
+  // RFC 9728 section 2. A client with somewhere to show a name gets one.
+  resource_name: 'Cronometer',
   resource_documentation: ISSUER,
-  ...brand,
 };
 
 app.get('/.well-known/oauth-protected-resource', cors, (_req, res) => res.json(resourceMetadata));
@@ -183,7 +169,6 @@ const asMetadata = {
   code_challenge_methods_supported: ['S256'],
   token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
   service_documentation: ISSUER,
-  ...brand,
 };
 
 app.get('/.well-known/oauth-authorization-server', cors, (_req, res) => res.json(asMetadata));
