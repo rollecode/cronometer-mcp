@@ -1,12 +1,11 @@
-"""Cronometer mobile API client.
+"""Client for the Cronometer API that the Android app uses.
 
-Reverse-engineered from the Cronometer Android/Flutter app (v4.52.6).
-Communicates with mobile.cronometer.com/api/v2/* using clean JSON payloads.
+Cronometer publishes no API, so this was worked out from the Android app
+(v4.52.6) and talks to mobile.cronometer.com/api/v2/* with plain JSON.
 
-Endpoint catalog was extracted via static analysis of libapp.so (Dart AOT
-snapshot) from the APK. See the calorie-estimator project for the original
-Frida-based traffic capture that established the auth flow and initial
-endpoints.
+The list of endpoints was read out of the app's compiled code. See the
+calorie-estimator project for the traffic capture that first worked out how
+logging in and the earliest endpoints work.
 """
 
 import json

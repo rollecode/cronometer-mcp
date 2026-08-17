@@ -8,9 +8,9 @@
 #   HOSTNAME=cronometer-mcp.example.com CRON_USER=me@example.com \
 #     CRON_PASS=... curl -fsSL .../install.sh | bash
 #
-# Installs the code and the services. Exposing the endpoint to the internet is
-# left to you: a tunnel or reverse proxy is the one step where setups genuinely
-# differ, and guessing wrong there means publishing a food diary by accident.
+# Installs the code and the services. Putting it online is left to you: a
+# tunnel or a proxy is the one step where setups really differ, and a wrong
+# guess there would put a food diary on the public internet by accident.
 
 set -euo pipefail
 
@@ -128,7 +128,7 @@ if [ -f "$CONFIG_DIR/password-hash" ]; then
 else
   PASSWORD="${PASSWORD:-}"
   if [ -z "$PASSWORD" ]; then
-    PASSWORD=$(ask_secret "Password for the OAuth login page (blank to generate one)")
+    PASSWORD=$(ask_secret "Password for the connector's login page (blank to generate one)")
   fi
   GENERATED=0
   if [ -z "$PASSWORD" ]; then
@@ -163,7 +163,7 @@ trap 'rm -rf "$UNIT_TMP"' EXIT
 
 cat > "$UNIT_TMP/cronometer-mcp.service" <<EOF
 [Unit]
-Description=Cronometer MCP server (Streamable HTTP, loopback only)
+Description=Cronometer MCP server (local machine only)
 After=network-online.target
 Wants=network-online.target
 
@@ -181,7 +181,7 @@ ProtectHome=false
 ReadWritePaths=$CACHE_DIR
 # No IPAddressDeny here: unlike a local-files MCP, this one has to reach
 # mobile.cronometer.com. Inbound is already contained because the server
-# refuses to bind anything but loopback.
+# only listens on the local machine.
 
 [Install]
 WantedBy=multi-user.target
@@ -189,7 +189,7 @@ EOF
 
 cat > "$UNIT_TMP/cronometer-mcp-auth.service" <<EOF
 [Unit]
-Description=OAuth 2.1 authorization server and resource guard for the Cronometer MCP
+Description=Login and access control for the Cronometer MCP
 After=network-online.target cronometer-mcp.service
 Wants=network-online.target
 

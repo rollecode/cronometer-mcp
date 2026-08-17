@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 //
-// OAuth 2.1 authorization server + resource guard in front of the Cronometer MCP.
-// Accepts either an OAuth token (claude.ai) or a static bearer token (Claude Code).
-// RFC 9728, RFC 8414, RFC 7591, PKCE S256, RFC 8707 audience binding. Single user.
+// Handles signing in, and lets nothing through to the Cronometer MCP without it.
+// Takes either an OAuth token (claude.ai) or a fixed token (Claude Code).
+// RFC 9728, RFC 8414, RFC 7591, PKCE S256, RFC 8707 audience binding. One user.
 
 'use strict';
 
@@ -493,9 +493,9 @@ async function terminateUpstreamSession(sessionId) {
   }
 }
 
-// Streamable HTTP keeps the response open, so this proxies by stream rather
-// than buffering. express.json() has already consumed the body, so it is
-// re-serialised on the way out.
+// The MCP keeps the response open and sends as it goes, so this passes the
+// data straight through instead of collecting it first. express.json() has
+// already read the request body, so it has to be written out again here.
 app.all('/mcp{/*path}', cors, authorizeRequest, async (req, res) => {
   const url = `${UPSTREAM}/mcp`;
   const headers = {};

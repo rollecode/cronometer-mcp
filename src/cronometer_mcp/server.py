@@ -1,4 +1,4 @@
-"""MCP server for Cronometer nutrition data via the mobile REST API."""
+"""MCP server for Cronometer, using the API the Android app uses."""
 
 import json
 import logging
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     "cronometer",
     instructions=(
-        "Cronometer MCP server for nutrition tracking via the mobile REST API. "
-        "Provides access to food search, diary management, daily nutrition data, "
-        "macro targets, biometrics, and fasting history from Cronometer. "
-        "Use search_foods to find foods, get_food_details for nutrition info "
-        "and serving sizes, add_food_entry to log meals, and get_food_log to "
-        "review what was eaten."
+        "Read and write a Cronometer food diary: search foods, add and change "
+        "diary entries, read daily nutrients and goals, record measurements, "
+        "exercise and fasts. Use search_foods to find a food, get_food_details "
+        "for its nutrients and serving sizes, add_food_entry to log a meal, "
+        "and get_food_log to see what was eaten. Notes, measurements and "
+        "exercise entries can be added and changed but not deleted."
     ),
 )
 
@@ -821,8 +821,8 @@ def edit_food_entry(
 def add_note(text: str, date: str | None = None) -> str:
     """Add a note to a day in the Cronometer diary.
 
-    Cronometer's mobile API cannot delete notes, only rewrite them, so a note
-    added here can be edited but not removed except in the Cronometer app.
+    Cronometer cannot delete notes, only rewrite them, so a note added here can
+    be changed but only removed in the Cronometer app.
 
     Args:
         text: The note text.
@@ -866,9 +866,8 @@ def add_biometric(
     """Record a biometric measurement, such as weight or body fat.
 
     Use list_biometrics to find metric IDs and their valid unit IDs.
-    Cronometer's mobile API cannot delete biometrics, only change their value,
-    so a wrong entry has to be corrected with edit_biometric or removed in the
-    Cronometer app.
+    Cronometer cannot delete measurements, only change their value, so fix a
+    wrong one with edit_biometric or remove it in the Cronometer app.
 
     Args:
         metric_id: Metric to record, from list_biometrics.
@@ -922,9 +921,8 @@ def add_exercise(
 ) -> str:
     """Log an exercise entry.
 
-    Cronometer's mobile API cannot delete exercise entries, only change them,
-    so a wrong entry has to be corrected with edit_exercise or removed in the
-    Cronometer app.
+    Cronometer cannot delete exercise entries, only change them, so fix a wrong
+    one with edit_exercise or remove it in the Cronometer app.
 
     Args:
         name: What the exercise was called.
@@ -1095,10 +1093,10 @@ def date_module_today() -> date:
 
 
 def main():
-    """Run the MCP server over stdio or Streamable HTTP.
+    """Run the server on stdin/stdout, or over HTTP.
 
-    Streamable HTTP carries no authentication of its own, so it binds to
-    loopback and is only ever reached through auth-server.js.
+    Over HTTP it has no login of its own, so it only listens on the local
+    machine and is only ever reached through auth-server.js.
     """
     import argparse
 
@@ -1127,13 +1125,14 @@ def main():
 
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         raise SystemExit(
-            f"refusing to bind {args.host}: this server is unauthenticated, "
-            "put auth-server.js in front of it and keep it on loopback"
+            f"refusing to listen on {args.host}: this server has no login of "
+            "its own. Keep it on the local machine and put auth-server.js in "
+            "front of it."
         )
 
     mcp.settings.host = args.host
     mcp.settings.port = args.port
-    logger.info("Streamable HTTP on http://%s:%d/mcp", args.host, args.port)
+    logger.info("Listening on http://%s:%d/mcp", args.host, args.port)
     mcp.run(transport="streamable-http")
 
 
