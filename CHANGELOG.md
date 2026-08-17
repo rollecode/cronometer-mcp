@@ -1,3 +1,8 @@
+### 1.2.1: 2026-08-17
+
+* Offer the icon in 48, 96 and 256 px, Ref: [SEP-973](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1040#issuecomment-3967699520)
+* Report our own version in `initialize`
+
 ### 1.2.0: 2026-08-17
 
 * Set nutrient targets and limits

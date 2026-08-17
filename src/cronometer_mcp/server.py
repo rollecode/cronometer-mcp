@@ -1,5 +1,6 @@
 """MCP server for Cronometer, using the API the Android app uses."""
 
+import importlib.metadata
 import json
 import logging
 import os
@@ -13,15 +14,35 @@ from .client import CronometerClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Advertised in the initialize response so a client can badge the connector with
-# the Cronometer mark. Clients that ignore it fall back to guessing from the
-# hostname, which lands on whatever the parent domain serves.
+try:
+    __version__ = importlib.metadata.version("cronometer-mcp")
+except importlib.metadata.PackageNotFoundError:  # running from a source tree
+    __version__ = "0.0.0"
+
+# Advertised in the initialize response per the MCP icons spec, so a client can
+# badge the connector with the Cronometer mark rather than guessing from the
+# hostname. Three sizes because the spec has clients pick the one that fits
+# their UI, and downscaling a single 256px asset to a 16px chip looks it.
+# PNG throughout: it is one of the two types an icon-rendering client MUST
+# support, and the URLs are same-origin, which the spec asks for so the icon
+# cannot leak a request to a third party.
+# Ref: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1040#issuecomment-3967699520
 _ICON_BASE = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
+_ICON_SIZES = (48, 96, 256)
 
 mcp = FastMCP(
     "cronometer",
     icons=(
-        [Icon(src=f"{_ICON_BASE}/icon.png", mimeType="image/png", sizes=["256x256"])]
+        [
+            Icon(
+                src=f"{_ICON_BASE}/icon.png"
+                if size == 256
+                else f"{_ICON_BASE}/icon-{size}.png",
+                mimeType="image/png",
+                sizes=[f"{size}x{size}"],
+            )
+            for size in _ICON_SIZES
+        ]
         if _ICON_BASE
         else None
     ),
@@ -35,6 +56,10 @@ mcp = FastMCP(
         "exercise entries can be added and changed but not deleted."
     ),
 )
+
+# FastMCP has no version argument, and the server underneath falls back to the
+# MCP SDK's own version, so initialize was reporting the SDK's number as ours.
+mcp._mcp_server.version = __version__
 
 _client: CronometerClient | None = None
 
