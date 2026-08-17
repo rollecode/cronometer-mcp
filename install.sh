@@ -179,10 +179,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=false
 ReadWritePaths=$CACHE_DIR
-# The MCP itself is unauthenticated. Only the auth server on loopback may reach
-# it, so nothing on the LAN can talk to this port.
-IPAddressDeny=any
-IPAddressAllow=localhost
+# No IPAddressDeny here: unlike a local-files MCP, this one has to reach
+# mobile.cronometer.com. Inbound is already contained because the server
+# refuses to bind anything but loopback.
 
 [Install]
 WantedBy=multi-user.target
