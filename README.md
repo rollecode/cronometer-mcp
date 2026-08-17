@@ -98,23 +98,6 @@ complete.
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
 
-### How things are removed
-
-Cronometer removes different things in different ways, so it is worth knowing
-which tool applies to what:
-
-| Thing | How it goes away |
-| --- | --- |
-| A food entry in the diary | `remove_food_entry`, deleted outright |
-| A fast | `delete_fast`, deleted outright |
-| A custom food you created | `retire_custom_food`, which hides it from search while existing diary entries keep working |
-| A note, measurement or exercise entry | Edit it to the right value with `edit_note`, `edit_biometric` or `edit_exercise`, or remove it in the Cronometer app |
-
-The last row is a limit of Cronometer's API rather than a choice here: it
-accepts a delete for those three and then does nothing. The tool descriptions
-say so too, so Claude offers you an edit rather than promising a deletion that
-would not happen.
-
 ## How it fits together
 
 ```
