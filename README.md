@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.0.2-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.0.3-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -155,6 +155,15 @@ It reads your login from `~/.config/cronometer-mcp/env` or from a `.env` file.
 | `CONFIG_DIR` | Where the password, token and database are kept |
 | `CALL_TIMEOUT_MS` | How long a call may go quiet before it is cut off, 120000 by default |
 | `MCP_PORT` | MCP server port, 8430 by default |
+| `MCP_PUBLIC_URL` | Public address, used to advertise the icon to clients |
+
+### About the connector icon
+
+The server advertises its icon in the `initialize` response, which is where the
+MCP spec says it belongs. Claude.ai does not read that yet ([claude-ai-mcp#152](https://github.com/anthropics/claude-ai-mcp/issues/152)),
+so a custom connector there is badged with whatever Claude.ai guesses from the
+hostname, which for a subdomain is usually the parent domain's icon. Nothing the
+server does changes that today. Clients that do read the field get the right one.
 
 Everything secret lives in `~/.config/cronometer-mcp/`, readable only by you: `env` holds your Cronometer login, `password-hash` the password for the connector's login page, `token` the fixed token, and `oauth.db` the apps and tokens the login server has handed out. Tokens are stored scrambled, so a stolen copy of the database gives nobody a working key.
 

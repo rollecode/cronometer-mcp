@@ -1,3 +1,7 @@
+### 1.0.3: 2026-08-17
+
+* Advertise the icon in the initialize response
+
 ### 1.0.2: 2026-08-17
 
 * Serve an icon-bearing page at the root

@@ -6,14 +6,26 @@ import os
 from datetime import date, datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import Icon
 
 from .client import CronometerClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Advertised in the initialize response so a client can badge the connector with
+# the Cronometer mark. Clients that ignore it fall back to guessing from the
+# hostname, which lands on whatever the parent domain serves.
+_ICON_BASE = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
+
 mcp = FastMCP(
     "cronometer",
+    icons=(
+        [Icon(src=f"{_ICON_BASE}/icon.png", mimeType="image/png", sizes=["256x256"])]
+        if _ICON_BASE
+        else None
+    ),
+    website_url=_ICON_BASE or None,
     instructions=(
         "Read and write a Cronometer food diary: search foods, add and change "
         "diary entries, read daily nutrients and goals, record measurements, "
