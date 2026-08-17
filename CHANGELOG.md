@@ -1,3 +1,9 @@
+### 1.1.1: 2026-08-17
+
+* Add step-by-step self-hosting instructions
+* Say how each kind of entry is removed
+* Hold ruff to the supported Python version
+
 ### 1.1.0: 2026-08-17
 
 * Set any of the 94 nutrients on a custom food

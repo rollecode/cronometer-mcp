@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.1.1-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -98,15 +98,22 @@ complete.
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
 
-Cronometer has no delete for foods, so `retire_custom_food` is how one goes
-away: it stops being offered for new entries while existing diary entries that
-reference it keep working.
+### How things are removed
 
-### What you cannot delete
+Cronometer removes different things in different ways, so it is worth knowing
+which tool applies to what:
 
-Cronometer's app API can only delete foods and fasts. If you ask it to delete a note, a measurement or an exercise, it says it worked and then nothing happens. There is no other way to delete them.
+| Thing | How it goes away |
+| --- | --- |
+| A food entry in the diary | `remove_food_entry`, deleted outright |
+| A fast | `delete_fast`, deleted outright |
+| A custom food you created | `retire_custom_food`, which hides it from search while existing diary entries keep working |
+| A note, measurement or exercise entry | Edit it to the right value with `edit_note`, `edit_biometric` or `edit_exercise`, or remove it in the Cronometer app |
 
-So you can add and change notes, measurements and exercises here, but you cannot remove them. To get rid of one, either edit it to the right value or delete it in the Cronometer app. The tools say this in their own descriptions, so Claude will not promise you a deletion it cannot do.
+The last row is a limit of Cronometer's API rather than a choice here: it
+accepts a delete for those three and then does nothing. The tool descriptions
+say so too, so Claude offers you an edit rather than promising a deletion that
+would not happen.
 
 ## How it fits together
 
@@ -148,6 +155,155 @@ ingress:
 
 It has to be HTTPS. OAuth will not work over plain HTTP.
 
+## Self-hosting it by hand
+
+If you would rather see every step than run the installer, this is all of it.
+The end state is two services on your own machine, reachable over HTTPS.
+
+### 1. Get the code and its dependencies
+
+```bash
+git clone https://github.com/rollecode/cronometer-mcp.git
+cd cronometer-mcp
+npm install --omit=dev
+uv venv && uv pip install -e .
+```
+
+### 2. Store your Cronometer login
+
+```bash
+./set-credentials.sh
+```
+
+It prompts for your email, password and time zone, and writes them to
+`~/.config/cronometer-mcp/env` with mode 0600. The password is never echoed and
+never reaches your shell history. Do it by hand if you prefer:
+
+```bash
+mkdir -p ~/.config/cronometer-mcp && chmod 700 ~/.config/cronometer-mcp
+cat > ~/.config/cronometer-mcp/env <<'EOF'
+CRONOMETER_USERNAME=you@example.com
+CRONOMETER_PASSWORD=your-password
+CRONOMETER_ACCOUNT_TZ=Europe/Helsinki
+EOF
+chmod 600 ~/.config/cronometer-mcp/env
+```
+
+Check it works before going further. This logs in and prints your diary:
+
+```bash
+set -a && . ~/.config/cronometer-mcp/env && set +a
+.venv/bin/python -c "from cronometer_mcp import CronometerClient; c=CronometerClient(); print(c.get_diary()['summary'])"
+```
+
+### 3. Set the connector password and a token
+
+The password is what you type on the sign-in page when adding the connector in
+Claude.ai. Only its scrypt hash is stored.
+
+```bash
+CONFIG_DIR=~/.config/cronometer-mcp node set-password.js 'your-password-here'
+```
+
+The token is the shortcut for Claude Code, which sends a header and skips the
+browser entirely.
+
+```bash
+openssl rand -hex 32 > ~/.config/cronometer-mcp/token
+chmod 600 ~/.config/cronometer-mcp/token
+```
+
+### 4. Install the two services
+
+`systemd/` holds both unit files. Replace `YOUR_USER` with your username and
+`cronometer-mcp.example.com` with your hostname, then:
+
+```bash
+mkdir -p ~/.cache/cronometer-mcp
+sudo cp systemd/cronometer-mcp.service systemd/cronometer-mcp-auth.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cronometer-mcp cronometer-mcp-auth
+systemctl status cronometer-mcp cronometer-mcp-auth
+```
+
+`cronometer-mcp` is the server itself on :8430, reachable only from the machine
+it runs on. `cronometer-mcp-auth` is the login layer on :8432, and it is the
+only thing that talks to :8430.
+
+One trap worth naming, because the symptom is confusing: do not add
+`IPAddressDeny=any` to `cronometer-mcp.service`. It is a sensible hardening line
+for a server that only reads local files, but this one has to reach
+`mobile.cronometer.com`, and with it set every tool call hangs until it times
+out while systemd still reports the service as active. Nothing is gained by it
+either, since the server already refuses to listen beyond the local machine.
+
+### 5. Put nginx in front
+
+```bash
+sudo cp nginx/cronometer-mcp.conf /etc/nginx/sites-enabled/cronometer-mcp
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+It listens on `127.0.0.1:8431` and passes everything to the login layer. The
+long read timeout and `proxy_buffering off` matter: the MCP holds the connection
+open and sends as it goes, and buffering would stall it.
+
+### 6. Give it an HTTPS address
+
+A Cloudflare Tunnel avoids opening a router port. Any HTTPS reverse proxy works
+just as well.
+
+```yaml
+ingress:
+  - hostname: cronometer-mcp.example.com
+    service: http://localhost:8431
+```
+
+```bash
+cloudflared tunnel route dns YOUR_TUNNEL cronometer-mcp.example.com
+sudo systemctl restart cloudflared
+```
+
+### 7. Check it from outside
+
+```bash
+curl https://cronometer-mcp.example.com/.well-known/oauth-authorization-server
+curl -o /dev/null -w '%{http_code}\n' -X POST https://cronometer-mcp.example.com/mcp
+```
+
+The first returns the login details. The second must return `401`: anything else
+means the login layer is being bypassed and your diary is exposed.
+
+Then connect a client as described under [Connecting](#connecting).
+
+### Updating
+
+```bash
+git pull
+uv pip install -e . && npm install --omit=dev
+sudo systemctl restart cronometer-mcp cronometer-mcp-auth
+```
+
+After adding or renaming a tool, press Reconnect on the connector in Claude.ai.
+That refreshes the tool list inside a conversation you already have open, and
+your sign-in survives it, because tokens live in `oauth.db` on disk rather than
+in memory.
+
+### When something is wrong
+
+```bash
+journalctl -u cronometer-mcp -n 50 --no-pager
+journalctl -u cronometer-mcp-auth -n 50 --no-pager
+```
+
+| What you see | What it usually is |
+| --- | --- |
+| Tool calls hang, service says active | `IPAddressDeny` on the MCP unit, see step 4 |
+| `401` on every call from Claude Code | Token mismatch, compare the header against `~/.config/cronometer-mcp/token` |
+| Sign-in page rejects the password | No hash stored yet, run step 3 |
+| Login fails asking for a 2FA code | See [If you use two-factor](#if-you-use-two-factor) |
+| `502` from nginx | The login layer is down, `systemctl status cronometer-mcp-auth` |
+
 ## Connecting
 
 **Claude.ai.** Go to Settings, Connectors, Add custom connector, and give it `https://your-host/mcp`. Leave the client ID and secret empty. Sign in with the password the installer set. Doing this once covers web, desktop and mobile, because connectors belong to your account rather than one device.
@@ -168,9 +324,10 @@ claude mcp add --transport http cronometer https://your-host/mcp \
   --scope user
 ```
 
-## Running it on your own machine
+## Using it without a server at all
 
-If Claude is on the same machine, you can skip the web server and the login:
+If Claude runs on the same machine, skip the web server and the login entirely
+and let it start the MCP directly:
 
 ```bash
 claude mcp add cronometer -- /path/to/cronometer-mcp/.venv/bin/cronometer-mcp
