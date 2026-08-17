@@ -1,3 +1,8 @@
+### 1.0.1: 2026-08-17
+
+* Serve a Cronometer favicon and icon
+* Simplify the sign-in page
+
 ### 1.0.0: 2026-08-17
 
 * Read the diary with food names and all nutrients
