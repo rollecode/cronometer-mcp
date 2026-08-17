@@ -2,7 +2,7 @@
 <div align="center" style="text-align: center;justify-content:center;">
 <h1 align="center" style="text-align: center;justify-content:center;">
 
-Cronometer remote MCP server
+Cronometer MCP server
 
 <img style="justify-content:center;text-align: center;width: 95px; height: auto;" width="793" height="411" alt="image" src="https://github.com/user-attachments/assets/abed1a04-d69b-4ab4-a490-d606064df72d" />
 <img style="justify-content:center;text-align: center;width: 250px; height: auto;" alt="image" src="https://i.imgur.com/BvK8LSN.png" />

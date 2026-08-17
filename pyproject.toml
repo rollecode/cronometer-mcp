@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cronometer-mcp"
 version = "0.2.0"
-description = "Remote MCP server for Cronometer nutrition data, read and write"
+description = "MCP server for Cronometer, read and write your food diary"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
