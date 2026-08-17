@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Write a scrypt password hash for the OAuth login page.
+// Scramble and store the password for the connector's login page.
 // Usage: node set-password.js <password>
 
 'use strict';
@@ -15,7 +15,7 @@ if (!password) {
   process.exit(2);
 }
 
-const dir = process.env.CONFIG_DIR || path.join(os.homedir(), '.config', 'obsidian-mcp');
+const dir = process.env.CONFIG_DIR || path.join(os.homedir(), '.config', 'cronometer-mcp');
 fs.mkdirSync(dir, { recursive: true });
 
 const salt = crypto.randomBytes(16).toString('hex');
