@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from cronometer_api_mcp.client import CronometerClient
+from cronometer_mcp.client import CronometerClient
 
 
 class FakeResp:
@@ -68,7 +68,7 @@ class FrozenDatetime(_dt.datetime):
 @pytest.fixture
 def frozen_utc(monkeypatch):
     """Freeze wall-clock time to 2026-07-27 18:01:30 UTC (== 11:01 PDT)."""
-    monkeypatch.setattr("cronometer_api_mcp.client.datetime", FrozenDatetime)
+    monkeypatch.setattr("cronometer_mcp.client.datetime", FrozenDatetime)
 
 
 def test_stamps_in_account_timezone_not_host(tmp_path, frozen_utc):

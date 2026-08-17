@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from cronometer_api_mcp.client import CronometerClient, CronometerError
+from cronometer_mcp.client import CronometerClient, CronometerError
 
 # Real response body observed from an expired session.
 REAL_FAIL_BODY = {"result": "FAIL", "error": "Token Authorization failed"}

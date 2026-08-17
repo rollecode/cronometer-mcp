@@ -97,6 +97,7 @@ Credentials come from `~/.config/cronometer-mcp/env` or a local `.env`.
 | `CRONOMETER_USERNAME` | Cronometer account email |
 | `CRONOMETER_PASSWORD` | Cronometer account password |
 | `CRONOMETER_ACCOUNT_TZ` | IANA zone the diary days are computed in |
+| `CRONOMETER_TOTP_SECRET` | Base32 2FA secret, only if the account has 2FA on. Needs `pip install cronometer-mcp[totp]` |
 | `ISSUER` | Public HTTPS origin of the auth server |
 | `PORT` | Auth server port, default 8432 |
 | `UPSTREAM` | MCP server URL, default `http://127.0.0.1:8430` |

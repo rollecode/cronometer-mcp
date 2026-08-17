@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
 
@@ -766,6 +766,310 @@ def get_biometrics(
                 "biometrics": data,
             }
         )
+    except Exception as e:
+        return _err(e)
+
+
+_WRITE = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+_DESTRUCTIVE = {**_WRITE, "destructiveHint": True}
+
+
+# ------------------------------------------------------------------
+# Diary: servings
+# ------------------------------------------------------------------
+
+
+@mcp.tool(annotations=_WRITE)
+def edit_food_entry(
+    entry_id: int,
+    grams: float | None = None,
+    time: str | None = None,
+    date: str | None = None,
+) -> str:
+    """Change the amount or time of an already logged food entry.
+
+    Use get_food_log to find entry IDs.
+
+    Args:
+        entry_id: The serving ID of the entry to change.
+        grams: New amount in grams.
+        time: New time as HH:MM:SS.
+        date: Date the entry is on as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        client = _get_client()
+        client.edit_serving(
+            entry_id, grams=grams, time=time, day=_parse_date(date)
+        )
+        entry = client.find_entry(entry_id, "Serving", _parse_date(date))
+        return _ok({"entry_id": entry_id, "grams": entry["grams"], "time": entry["time"]})
+    except Exception as e:
+        return _err(e)
+
+
+# ------------------------------------------------------------------
+# Diary: notes
+# ------------------------------------------------------------------
+
+
+@mcp.tool(annotations=_WRITE)
+def add_note(text: str, date: str | None = None) -> str:
+    """Add a note to a day in the Cronometer diary.
+
+    Cronometer's mobile API cannot delete notes, only rewrite them, so a note
+    added here can be edited but not removed except in the Cronometer app.
+
+    Args:
+        text: The note text.
+        date: Date as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        result = _get_client().add_note(text, _parse_date(date))
+        return _ok({"note_id": result.get("id"), "date": date or str(date_module_today())})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def edit_note(note_id: int, text: str, date: str | None = None) -> str:
+    """Replace the text of an existing diary note.
+
+    Args:
+        note_id: The note ID, from get_food_log.
+        text: The replacement text.
+        date: Date the note is on as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        _get_client().edit_note(note_id, text, _parse_date(date))
+        return _ok({"note_id": note_id, "text": text})
+    except Exception as e:
+        return _err(e)
+
+
+# ------------------------------------------------------------------
+# Diary: biometrics
+# ------------------------------------------------------------------
+
+
+@mcp.tool(annotations=_WRITE)
+def add_biometric(
+    metric_id: int,
+    unit_id: int,
+    amount: float,
+    date: str | None = None,
+) -> str:
+    """Record a biometric measurement, such as weight or body fat.
+
+    Use list_biometrics to find metric IDs and their valid unit IDs.
+    Cronometer's mobile API cannot delete biometrics, only change their value,
+    so a wrong entry has to be corrected with edit_biometric or removed in the
+    Cronometer app.
+
+    Args:
+        metric_id: Metric to record, from list_biometrics.
+        unit_id: Unit the amount is in, from that metric's units.
+        amount: The measured value.
+        date: Date as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        result = _get_client().add_biometric(
+            metric_id, unit_id, amount, _parse_date(date)
+        )
+        return _ok(
+            {
+                "biometric_id": result.get("id"),
+                "metric_id": metric_id,
+                "amount": amount,
+                "date": date or str(date_module_today()),
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def edit_biometric(biometric_id: int, amount: float, date: str | None = None) -> str:
+    """Change the value of a recorded biometric.
+
+    Args:
+        biometric_id: The biometric ID, from get_food_log.
+        amount: The corrected value, in the unit the entry already uses.
+        date: Date the entry is on as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        _get_client().edit_biometric(biometric_id, amount, _parse_date(date))
+        return _ok({"biometric_id": biometric_id, "amount": amount})
+    except Exception as e:
+        return _err(e)
+
+
+# ------------------------------------------------------------------
+# Diary: exercise
+# ------------------------------------------------------------------
+
+
+@mcp.tool(annotations=_WRITE)
+def add_exercise(
+    name: str,
+    minutes: int,
+    calories_burned: float,
+    date: str | None = None,
+) -> str:
+    """Log an exercise entry.
+
+    Cronometer's mobile API cannot delete exercise entries, only change them,
+    so a wrong entry has to be corrected with edit_exercise or removed in the
+    Cronometer app.
+
+    Args:
+        name: What the exercise was called.
+        minutes: Duration in minutes.
+        calories_burned: Calories burned, as a positive number.
+        date: Date as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        result = _get_client().add_exercise(
+            name, minutes, calories_burned, _parse_date(date)
+        )
+        return _ok(
+            {
+                "exercise_id": result.get("id"),
+                "name": name,
+                "minutes": minutes,
+                "calories_burned": calories_burned,
+                "date": date or str(date_module_today()),
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def edit_exercise(
+    exercise_id: int,
+    minutes: int | None = None,
+    calories_burned: float | None = None,
+    date: str | None = None,
+) -> str:
+    """Change the duration or calorie burn of a logged exercise.
+
+    Args:
+        exercise_id: The exercise ID, from get_food_log.
+        minutes: New duration in minutes.
+        calories_burned: New burn, as a positive number.
+        date: Date the entry is on as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        _get_client().edit_exercise(
+            exercise_id,
+            minutes=minutes,
+            calories_burned=calories_burned,
+            day=_parse_date(date),
+        )
+        return _ok({"exercise_id": exercise_id})
+    except Exception as e:
+        return _err(e)
+
+
+# ------------------------------------------------------------------
+# Fasting
+# ------------------------------------------------------------------
+
+
+@mcp.tool(annotations=_WRITE)
+def add_fast(start: str, end: str | None = None, goal_hours: float = 16) -> str:
+    """Record a fast.
+
+    Args:
+        start: When the fast started, as YYYY-MM-DD HH:MM.
+        end: When it ended, same format. Omit for an ongoing fast.
+        goal_hours: Target length in hours.
+    """
+    try:
+        client = _get_client()
+        tz = client._tzinfo()
+        started = datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+        ended = (
+            datetime.strptime(end, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+            if end
+            else None
+        )
+        result = client.add_fast(started, ended, goal_hours)
+        return _ok({"fast_id": result.get("id"), "start": start, "end": end})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def edit_fast(
+    fast_id: int,
+    start: str | None = None,
+    end: str | None = None,
+    goal_hours: float | None = None,
+) -> str:
+    """Change a recorded fast, including ending one that is still open.
+
+    Args:
+        fast_id: The fast ID, from get_fasting_history.
+        start: New start as YYYY-MM-DD HH:MM.
+        end: New end as YYYY-MM-DD HH:MM.
+        goal_hours: New target length in hours.
+    """
+    try:
+        client = _get_client()
+        tz = client._tzinfo()
+
+        def parse(s: str) -> datetime:
+            return datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+
+        client.edit_fast(
+            fast_id,
+            start=parse(start) if start else None,
+            end=parse(end) if end else None,
+            goal_hours=goal_hours,
+        )
+        return _ok({"fast_id": fast_id})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def delete_fast(fast_id: int) -> str:
+    """Remove a recorded fast.
+
+    Args:
+        fast_id: The fast ID, from get_fasting_history.
+    """
+    try:
+        _get_client().delete_fast(fast_id)
+        return _ok({"deleted": fast_id})
+    except Exception as e:
+        return _err(e)
+
+
+# ------------------------------------------------------------------
+# Targets
+# ------------------------------------------------------------------
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    }
+)
+def get_targets() -> str:
+    """Nutrient targets for the account, as shown beside the diary totals."""
+    try:
+        data = _get_client().get_targets()
+        return _ok({"targets": data.get("targets", [])})
     except Exception as e:
         return _err(e)
 

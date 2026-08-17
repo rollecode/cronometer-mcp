@@ -14,6 +14,7 @@ import logging
 import os
 from datetime import date, datetime
 from pathlib import Path
+from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -134,7 +135,7 @@ class CronometerClient:
         """
         try:
             raw = self._session_path.read_text()
-        except FileNotFoundError, OSError:
+        except OSError:
             return
         try:
             data = json.loads(raw)
@@ -208,6 +209,24 @@ class CronometerClient:
             )
         return username, password
 
+    @staticmethod
+    def _totp_code() -> str | None:
+        """Current TOTP code, or None when the account has no 2FA.
+
+        Cronometer rejects login with TOTP_CODE_REQUIRED when 2FA is on, so an
+        unattended server needs the shared secret rather than a typed code.
+        """
+        secret = os.getenv("CRONOMETER_TOTP_SECRET")
+        if not secret:
+            return None
+        try:
+            import pyotp
+        except ImportError as exc:
+            raise CronometerError(
+                "CRONOMETER_TOTP_SECRET is set but pyotp is not installed"
+            ) from exc
+        return pyotp.TOTP(secret.replace(" ", "")).now()
+
     def login(self) -> None:
         """Authenticate with Cronometer and cache the session token."""
         username, password = self._get_credentials()
@@ -224,7 +243,7 @@ class CronometerClient:
             # leaves the account setting untouched and the response echoes the
             # account's real zone.
             "timezone": None,
-            "userCode": None,
+            "userCode": self._totp_code(),
             "build": "4.48.2 b2807-a",
             "device": "Android 14 (SDK 34), Google Pixel 6 Pro",
             "firebaseToken": "",
@@ -247,6 +266,12 @@ class CronometerClient:
         data = resp.json()
 
         if data.get("result") != "SUCCESS" and "sessionKey" not in data:
+            if data.get("error") == "TOTP_CODE_REQUIRED":
+                raise CronometerError(
+                    "Cronometer wants a 2FA code. Set CRONOMETER_TOTP_SECRET to "
+                    "the base32 secret so the server can generate its own, or "
+                    "turn 2FA off for this account."
+                )
             raise CronometerError(f"Login failed: {data}")
 
         self._user_id = data["id"]
@@ -389,7 +414,7 @@ class CronometerClient:
             return None
         try:
             ZoneInfo(name)
-        except ZoneInfoNotFoundError, ValueError:
+        except (ZoneInfoNotFoundError, ValueError):
             logger.warning(
                 "Ignoring invalid %s=%r (not a known IANA timezone)",
                 _ACCOUNT_TZ_ENV,
@@ -423,7 +448,7 @@ class CronometerClient:
         name = self._timezone or _DEFAULT_TIMEZONE
         try:
             return ZoneInfo(name)
-        except ZoneInfoNotFoundError, ValueError:
+        except (ZoneInfoNotFoundError, ValueError):
             logger.warning(
                 "Unknown account timezone %r; falling back to %s",
                 name,
@@ -1186,6 +1211,266 @@ class CronometerClient:
             self._format_day(start),
             self._format_day(end),
         )
+        return data
+
+    # ------------------------------------------------------------------
+    # Diary: entry lookup
+    # ------------------------------------------------------------------
+
+    # The v2 write endpoints all take a whole entry object rather than a patch,
+    # so an edit means read-modify-write against the day the entry lives on.
+    _ID_FIELD: ClassVar[dict[str, str]] = {
+        "Serving": "servingId",
+        "Note": "noteId",
+        "Biometric": "biometricId",
+        "Exercise": "exerciseId",
+    }
+
+    def find_entry(self, entry_id: int, entry_type: str, day: date | None = None) -> dict:
+        """Return a diary entry of the given type by its numeric id.
+
+        Args:
+            entry_id: The type's own id (servingId, noteId, biometricId, ...).
+            entry_type: One of Serving, Note, Biometric, Exercise.
+            day: Day the entry is on. Defaults to today.
+        """
+        id_field = self._ID_FIELD.get(entry_type)
+        if id_field is None:
+            raise CronometerError(f"Unknown diary entry type: {entry_type}")
+        for entry in self.get_diary(day).get("diary", []):
+            if entry.get("type") == entry_type and entry.get(id_field) == entry_id:
+                return entry
+        raise CronometerError(
+            f"No {entry_type} with id {entry_id} in the diary for "
+            f"{self._format_day(day)}"
+        )
+
+    # ------------------------------------------------------------------
+    # Diary: servings
+    # ------------------------------------------------------------------
+
+    def edit_serving(
+        self,
+        serving_id: int,
+        *,
+        grams: float | None = None,
+        time: str | None = None,
+        day: date | None = None,
+    ) -> dict:
+        """Change the amount or time of a logged serving.
+
+        Uses: POST /api/v2/edit_serving
+        """
+        serving = self.find_entry(serving_id, "Serving", day)
+        if grams is not None:
+            serving["grams"] = grams
+        if time is not None:
+            serving["time"] = time
+        data = self._request("/api/v2/edit_serving", {"serving": serving})
+        logger.info("Edited serving %s", serving_id)
+        return data
+
+    # ------------------------------------------------------------------
+    # Diary: notes
+    # ------------------------------------------------------------------
+
+    def add_note(self, text: str, day: date | None = None) -> dict:
+        """Add a diary note.
+
+        Uses: POST /api/v2/add_note
+        """
+        note = {
+            "type": "Note",
+            "userId": self.user_id,
+            "day": self._format_day(day),
+            "text": text,
+            "order": 0,
+            "meta": {},
+        }
+        data = self._request("/api/v2/add_note", {"note": note})
+        logger.info("Added note to %s", self._format_day(day))
+        return data
+
+    def edit_note(self, note_id: int, text: str, day: date | None = None) -> dict:
+        """Replace the text of an existing diary note.
+
+        Uses: POST /api/v2/edit_note
+        """
+        note = self.find_entry(note_id, "Note", day)
+        note["text"] = text
+        data = self._request("/api/v2/edit_note", {"note": note})
+        logger.info("Edited note %s", note_id)
+        return data
+
+    # ------------------------------------------------------------------
+    # Diary: biometrics
+    # ------------------------------------------------------------------
+
+    def add_biometric(
+        self,
+        metric_id: int,
+        unit_id: int,
+        amount: float,
+        day: date | None = None,
+    ) -> dict:
+        """Record a biometric measurement.
+
+        Uses: POST /api/v2/add_biometric
+        """
+        biometric = {
+            "type": "Biometric",
+            "userId": self.user_id,
+            "day": self._format_day(day),
+            "metricId": metric_id,
+            "unitId": unit_id,
+            "amount": amount,
+            "order": 0,
+            "meta": {},
+        }
+        data = self._request("/api/v2/add_biometric", {"biometric": biometric})
+        logger.info("Added biometric metric=%d amount=%s", metric_id, amount)
+        return data
+
+    def edit_biometric(
+        self, biometric_id: int, amount: float, day: date | None = None
+    ) -> dict:
+        """Change the value of a recorded biometric.
+
+        Uses: POST /api/v2/edit_biometric
+        """
+        biometric = self.find_entry(biometric_id, "Biometric", day)
+        biometric["amount"] = amount
+        data = self._request("/api/v2/edit_biometric", {"biometric": biometric})
+        logger.info("Edited biometric %s to %s", biometric_id, amount)
+        return data
+
+    # ------------------------------------------------------------------
+    # Diary: exercise
+    # ------------------------------------------------------------------
+
+    def add_exercise(
+        self,
+        name: str,
+        minutes: int,
+        calories_burned: float,
+        day: date | None = None,
+    ) -> dict:
+        """Log an exercise entry.
+
+        Cronometer stores burned calories as a negative number; a positive
+        value is accepted here and negated, since "burned 300" is how it reads
+        everywhere else.
+
+        Uses: POST /api/v2/add_exercise
+        """
+        exercise = {
+            "type": "Exercise",
+            "userId": self.user_id,
+            "day": self._format_day(day),
+            "name": name,
+            "minutes": minutes,
+            "calories": -abs(calories_burned),
+            "exerciseId": 0,
+            "activityId": 0,
+            "activitySpecId": 0,
+            "weight": 0,
+            "calorieOverride": False,
+            "order": 0,
+            "meta": {},
+        }
+        data = self._request("/api/v2/add_exercise", {"exercise": exercise})
+        logger.info("Added exercise %s (%d min)", name, minutes)
+        return data
+
+    def edit_exercise(
+        self,
+        exercise_id: int,
+        *,
+        minutes: int | None = None,
+        calories_burned: float | None = None,
+        day: date | None = None,
+    ) -> dict:
+        """Change the duration or burn of a logged exercise.
+
+        Uses: POST /api/v2/edit_exercise
+        """
+        exercise = self.find_entry(exercise_id, "Exercise", day)
+        if minutes is not None:
+            exercise["minutes"] = minutes
+        if calories_burned is not None:
+            exercise["calories"] = -abs(calories_burned)
+        data = self._request("/api/v2/edit_exercise", {"exercise": exercise})
+        logger.info("Edited exercise %s", exercise_id)
+        return data
+
+    # ------------------------------------------------------------------
+    # Fasting
+    # ------------------------------------------------------------------
+
+    def add_fast(
+        self, start: datetime, end: datetime | None = None, goal_hours: float = 16
+    ) -> dict:
+        """Record a fast. Leaving end unset starts an open, ongoing fast.
+
+        Uses: POST /api/v2/add_fast
+        """
+        fast = {
+            "userId": self.user_id,
+            "start": int(start.timestamp() * 1000),
+            "goal": int(goal_hours * 3600 * 1000),
+        }
+        if end is not None:
+            fast["end"] = int(end.timestamp() * 1000)
+        data = self._request("/api/v2/add_fast", {"fast": fast})
+        logger.info("Added fast starting %s", start)
+        return data
+
+    def edit_fast(
+        self,
+        fast_id: int,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        goal_hours: float | None = None,
+    ) -> dict:
+        """Change the bounds or goal of a recorded fast. Ends an open fast.
+
+        Uses: POST /api/v2/edit_fast
+        """
+        fasts = self.get_fasting_with_date_range().get("fasts", [])
+        fast = next((f for f in fasts if f.get("id") == fast_id), None)
+        if fast is None:
+            raise CronometerError(f"No fast with id {fast_id} in the recent range")
+        if start is not None:
+            fast["start"] = int(start.timestamp() * 1000)
+        if end is not None:
+            fast["end"] = int(end.timestamp() * 1000)
+        if goal_hours is not None:
+            fast["goal"] = int(goal_hours * 3600 * 1000)
+        data = self._request("/api/v2/edit_fast", {"fast": fast})
+        logger.info("Edited fast %s", fast_id)
+        return data
+
+    def delete_fast(self, fast_id: int) -> dict:
+        """Remove a recorded fast.
+
+        Uses: POST /api/v2/delete_fast
+        """
+        data = self._request("/api/v2/delete_fast", {"fastId": fast_id})
+        logger.info("Deleted fast %s", fast_id)
+        return data
+
+    # ------------------------------------------------------------------
+    # Targets
+    # ------------------------------------------------------------------
+
+    def get_targets(self) -> dict:
+        """Nutrient targets for the account, as shown next to the diary totals.
+
+        Uses: POST /api/v2/get_targets
+        """
+        data = self._request("/api/v2/get_targets", {"config": {"call_version": 1}})
+        logger.info("Fetched nutrient targets")
         return data
 
 

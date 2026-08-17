@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cronometer-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Remote MCP server for Cronometer nutrition data, read and write"
 readme = "README.md"
 license = "MIT"
@@ -22,6 +22,10 @@ dependencies = [
 
 [project.scripts]
 cronometer-mcp = "cronometer_mcp.server:main"
+
+[project.optional-dependencies]
+# Only needed when the account keeps 2FA on.
+totp = ["pyotp>=2.9.0"]
 
 [dependency-groups]
 dev = [

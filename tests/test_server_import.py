@@ -10,9 +10,19 @@ from __future__ import annotations
 import asyncio
 
 EXPECTED_TOOLS = {
+    "add_biometric",
     "add_custom_food",
+    "add_exercise",
+    "add_fast",
     "add_food_entry",
+    "add_note",
     "copy_day",
+    "delete_fast",
+    "edit_biometric",
+    "edit_exercise",
+    "edit_fast",
+    "edit_food_entry",
+    "edit_note",
     "get_biometrics",
     "get_daily_nutrition",
     "get_fasting_history",
@@ -21,6 +31,7 @@ EXPECTED_TOOLS = {
     "get_food_log",
     "get_macro_targets",
     "get_nutrition_scores",
+    "get_targets",
     "list_biometrics",
     "mark_day_complete",
     "remove_food_entry",
@@ -29,14 +40,14 @@ EXPECTED_TOOLS = {
 
 
 def test_server_module_imports():
-    """The entry point does `from cronometer_api_mcp.server import main`."""
-    from cronometer_api_mcp import server
+    """The entry point does `from cronometer_mcp.server import main`."""
+    from cronometer_mcp import server
 
     assert callable(server.main)
 
 
 def test_server_identity():
-    from cronometer_api_mcp.server import mcp
+    from cronometer_mcp.server import mcp
 
     assert mcp.name == "cronometer"
 
@@ -47,7 +58,7 @@ def test_registered_tools():
     Descriptions come from the docstrings and are what the model reads to pick
     a tool, so an empty one is a silent regression.
     """
-    from cronometer_api_mcp.server import mcp
+    from cronometer_mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
 
@@ -62,6 +73,6 @@ def test_no_client_constructed_at_import():
     The server is spawned fresh for every stdio session; the client is built
     lazily on the first tool call instead.
     """
-    from cronometer_api_mcp import server
+    from cronometer_mcp import server
 
     assert server._client is None
