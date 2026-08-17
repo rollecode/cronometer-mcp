@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cronometer-mcp"
+version = "0.1.0"
+description = "Remote MCP server for Cronometer nutrition data, read and write"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+keywords = ["cronometer", "mcp", "nutrition", "health", "model-context-protocol"]
+
+dependencies = [
+    # <2 until the MCPServer migration: 2.x moved mcp.server.fastmcp
+    "mcp>=1.29.0,<2",
+    "httpx[socks]>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "tzdata>=2024.1",
+    "uvicorn>=0.30.0",
+]
+
+[project.scripts]
+cronometer-mcp = "cronometer_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cronometer_mcp"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tools have to hand every failure back as a structured error string; an
+# exception escaping into the stdio stream kills the session.
+"src/cronometer_mcp/server.py" = ["BLE001"]
+# Diary enrichment is best-effort and degrades to an unenriched diary.
+"src/cronometer_mcp/client.py" = ["BLE001"]
