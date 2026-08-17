@@ -57,6 +57,15 @@ def _ok(data: dict) -> str:
     return json.dumps({"status": "success", **data}, indent=2)
 
 
+_WRITE = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+_DESTRUCTIVE = {**_WRITE, "destructiveHint": True}
+
+
 def _err(e: Exception) -> str:
     """Wrap an error response with actionable messages."""
     import httpx
@@ -529,49 +538,44 @@ def get_food_details(food_id: int) -> str:
 )
 def add_custom_food(
     name: str,
-    calories: float,
-    protein_g: float,
-    fat_g: float,
-    carbs_g: float,
-    fiber_g: float = 0,
-    sugar_g: float = 0,
-    sodium_mg: float = 0,
-    saturated_fat_g: float = 0,
+    nutrients: dict[str, float],
     serving_name: str = "1 serving",
     serving_grams: float = 100.0,
+    label_type: str = "AMERICAN_2016",
+    notes: str | None = None,
 ) -> str:
-    """Create a custom food in Cronometer with specified nutrition.
+    """Create a custom food with any nutrients you have, from 1 to all 94.
 
-    Nutrient amounts should be for the full serving size specified.
+    Amounts are for one whole serving, each in that nutrient's own unit. Call
+    list_nutrients for the accepted names and their units. Only pass the
+    nutrients you actually know: a nutrient you leave out stays blank in
+    Cronometer, while passing 0 states the food contains none of it, and the
+    app treats those differently. An unrecognised name is an error, so nothing
+    is silently dropped from a food that then looks complete.
+
+    Two label conveniences: energy_kj is converted to calories, salt_g to
+    sodium. Pass either one or its underlying nutrient, not both.
+
     After creation, use the returned food_id with add_food_entry to log it.
 
     Args:
         name: Food name.
-        calories: Calories per serving (kcal).
-        protein_g: Protein per serving (g).
-        fat_g: Fat per serving (g).
-        carbs_g: Carbs per serving (g).
-        fiber_g: Fiber per serving (g, default 0).
-        sugar_g: Sugar per serving (g, default 0).
-        sodium_mg: Sodium per serving (mg, default 0).
-        saturated_fat_g: Saturated fat per serving (g, default 0).
+        nutrients: Nutrient name to amount per serving, e.g.
+            {"energy": 250, "protein": 12.5, "vitamin_c": 30, "b12_cobalamin": 1.2}.
         serving_name: Name for the serving size (default "1 serving").
         serving_grams: Weight of one serving in grams (default 100).
+        label_type: "AMERICAN_2016" or "EUROPEAN".
+        notes: Free-text note stored on the food.
     """
     try:
         client = _get_client()
         result = client.create_custom_food(
             name,
-            calories=calories,
-            protein_g=protein_g,
-            fat_g=fat_g,
-            carbs_g=carbs_g,
-            fiber_g=fiber_g,
-            sugar_g=sugar_g,
-            sodium_mg=sodium_mg,
-            saturated_fat_g=saturated_fat_g,
+            nutrients,
             serving_name=serving_name,
             serving_grams=serving_grams,
+            label_type=label_type,
+            notes=notes,
         )
 
         # Fetch back to get the server-assigned measure_id
@@ -583,7 +587,61 @@ def add_custom_food(
                 "food_id": result["food_id"],
                 "measure_id": result["measure_id"],
                 "name": name,
+                "nutrients_set": len(nutrients),
                 "note": "Use food_id and measure_id with add_food_entry to log this food.",
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def retire_custom_food(food_id: int, retired: bool = True) -> str:
+    """Retire a custom food so it stops being offered for new entries.
+
+    This is how Cronometer removes a food; there is no delete. Diary entries
+    that already use it keep working. Pass retired=False to bring it back.
+
+    Args:
+        food_id: The custom food's ID.
+        retired: True to retire, False to restore.
+    """
+    try:
+        _get_client().retire_custom_food(food_id, retired)
+        return _ok({"food_id": food_id, "retired": retired})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    }
+)
+def list_nutrients() -> str:
+    """Every nutrient add_custom_food accepts, with its unit and category.
+
+    Read from the account's own catalog, so it stays right as Cronometer adds
+    nutrients. Use the returned keys for the add_custom_food nutrients dict.
+    """
+    try:
+        index = _get_client().nutrient_index()
+        by_category: dict[str, list[dict]] = {}
+        for key, meta in sorted(index.items()):
+            by_category.setdefault(meta["category"] or "Other", []).append(
+                {"key": key, "name": meta["name"], "unit": meta["unit"]}
+            )
+        return _ok(
+            {
+                "count": len(index),
+                "categories": by_category,
+                "conveniences": {
+                    "energy_kj": "kJ, converted to calories",
+                    "salt_g": "g of salt, converted to sodium in mg",
+                },
             }
         )
     except Exception as e:
@@ -780,15 +838,6 @@ def get_biometrics(
         )
     except Exception as e:
         return _err(e)
-
-
-_WRITE = {
-    "readOnlyHint": False,
-    "destructiveHint": False,
-    "idempotentHint": True,
-    "openWorldHint": True,
-}
-_DESTRUCTIVE = {**_WRITE, "destructiveHint": True}
 
 
 # ------------------------------------------------------------------

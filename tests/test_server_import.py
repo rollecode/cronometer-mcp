@@ -33,8 +33,10 @@ EXPECTED_TOOLS = {
     "get_nutrition_scores",
     "get_targets",
     "list_biometrics",
+    "list_nutrients",
     "mark_day_complete",
     "remove_food_entry",
+    "retire_custom_food",
     "search_foods",
 }
 

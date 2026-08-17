@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cronometer-mcp"
-version = "1.0.4"
+version = "1.1.0"
 description = "MCP server for Cronometer, read and write your food diary"
 readme = "README.md"
 license = "MIT"

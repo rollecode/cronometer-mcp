@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.0.4-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -44,6 +44,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `get_biometrics` | One measurement over time |
 | `get_fasting_history` | Fasts between two dates |
 | `get_fasting_stats` | Fasting totals and averages |
+| `list_nutrients` | Every nutrient you can set on a custom food, with units |
 
 ### Writing
 
@@ -52,7 +53,8 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `add_food_entry` | Add a food to a meal |
 | `edit_food_entry` | Change how much you ate, or when |
 | `remove_food_entry` | Delete food entries |
-| `add_custom_food` | Create your own food with its nutrients |
+| `add_custom_food` | Create your own food, with up to all 94 nutrients |
+| `retire_custom_food` | Retire a custom food, or bring one back |
 | `add_note` | Write a note on a day |
 | `edit_note` | Rewrite a note |
 | `add_biometric` | Record a measurement such as weight or body fat |
@@ -64,6 +66,41 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `delete_fast` | Delete a fast |
 | `copy_day` | Copy one day's diary onto another day |
 | `mark_day_complete` | Mark a day done, or not done |
+
+### Custom foods
+
+`add_custom_food` takes a dict of nutrient name to amount, so you can give it
+anything from one nutrient to the whole catalog in a single call:
+
+```json
+{
+  "name": "Vaasan Ruispalat",
+  "serving_name": "1 slice",
+  "serving_grams": 33,
+  "nutrients": {
+    "energy": 79, "protein": 3.1, "carbs": 12.5, "fiber": 3.4,
+    "fat": 0.8, "saturated": 0.2, "salt_g": 0.36,
+    "iron": 0.9, "magnesium": 26, "b1_thiamine": 0.09, "folate": 11
+  }
+}
+```
+
+Amounts are for one whole serving, each in that nutrient's own unit. Call
+`list_nutrients` for the accepted names, which come from your account's own
+catalog rather than a table baked in here.
+
+A nutrient you leave out stays blank in Cronometer. Passing `0` instead states
+that the food contains none of it, and the app treats the two differently, so
+only pass what you actually know. An unrecognised name is an error rather than
+being quietly dropped, because a food that silently lost a nutrient still looks
+complete.
+
+Two conveniences the food label has and the catalog does not: `energy_kj` is
+converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
+
+Cronometer has no delete for foods, so `retire_custom_food` is how one goes
+away: it stops being offered for new entries while existing diary entries that
+reference it keep working.
 
 ### What you cannot delete
 

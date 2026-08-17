@@ -1,3 +1,11 @@
+### 1.1.0: 2026-08-17
+
+* Set any of the 94 nutrients on a custom food
+* Leave a nutrient unset instead of writing zero
+* Reject unknown nutrient names loudly
+* Add `list_nutrients` and `retire_custom_food`
+* Accept `energy_kj` and `salt_g` from food labels
+
 ### 1.0.4: 2026-08-17
 
 * Name the resource in discovery metadata

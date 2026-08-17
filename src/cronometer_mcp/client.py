@@ -82,6 +82,49 @@ SUMMARY_MACRO_IDS = {
 }
 
 
+# Nutrients Cronometer computes rather than stores. Sending one is rejected or
+# silently overwritten, so they are filtered out of any write.
+COMPUTED_NUTRIENT_IDS = frozenset({-203, -204, -205, -221, -1205})
+
+# Spellings that are easier to type than the catalog's own names, or that the
+# food label uses instead. Mapped to the canonical slug derived from the API.
+NUTRIENT_ALIASES = {
+    "calories": "energy",
+    "kcal": "energy",
+    "carbohydrates": "carbs",
+    "saturated_fat": "saturated",
+    "trans_fat": "trans_fats",
+    "monounsaturated_fat": "monounsaturated",
+    "polyunsaturated_fat": "polyunsaturated",
+    "sugar": "sugars",
+    "vitamin_b1": "b1_thiamine",
+    "thiamine": "b1_thiamine",
+    "vitamin_b2": "b2_riboflavin",
+    "riboflavin": "b2_riboflavin",
+    "vitamin_b3": "b3_niacin",
+    "niacin": "b3_niacin",
+    "vitamin_b5": "b5_pantothenic_acid",
+    "pantothenic_acid": "b5_pantothenic_acid",
+    "vitamin_b6": "b6_pyridoxine",
+    "pyridoxine": "b6_pyridoxine",
+    "vitamin_b12": "b12_cobalamin",
+    "cobalamin": "b12_cobalamin",
+    "lutein": "lutein_zeaxanthin",
+    "zeaxanthin": "lutein_zeaxanthin",
+}
+
+
+def _slug(name: str) -> str:
+    """Turn a catalog nutrient name into a stable snake_case key.
+
+    "B12 (Cobalamin)" -> "b12_cobalamin", "Lutein+Zeaxanthin" -> "lutein_zeaxanthin".
+    """
+    out = []
+    for ch in name.lower():
+        out.append(ch if ch.isalnum() else " ")
+    return "_".join("".join(out).split())
+
+
 class CronometerError(Exception):
     """Raised when a Cronometer API call fails."""
 
@@ -542,61 +585,61 @@ class CronometerClient:
     def create_custom_food(
         self,
         name: str,
+        nutrients: dict[str, float],
         *,
-        calories: float,
-        protein_g: float,
-        fat_g: float,
-        carbs_g: float,
-        fiber_g: float = 0,
-        sugar_g: float = 0,
-        sodium_mg: float = 0,
-        saturated_fat_g: float = 0,
         serving_name: str = "1 serving",
         serving_grams: float = 100.0,
+        label_type: str = "AMERICAN_2016",
+        notes: str | None = None,
+        category: int = 0,
     ) -> dict:
-        """Create a custom food in Cronometer.
+        """Create a custom food carrying any subset of the nutrient catalog.
 
-        Nutrient amounts are per the full serving (serving_grams).
-        They are normalized to per-100g internally, since Cronometer stores
-        all nutrient data on a per-100g basis.
+        `nutrients` maps nutrient names to amounts for one whole serving, in
+        each nutrient's own catalog unit (see nutrient_index). Amounts are
+        converted to per-100g here because that is how Cronometer stores them.
+
+        Two conveniences the food label has but the catalog does not:
+        `energy_kj` is converted to kcal, and `salt_g` to sodium in mg. Passing
+        both a convenience and its underlying nutrient is an error rather than a
+        silent pick, since the two would disagree.
 
         Returns {"food_id": int, "measure_id": int | None}.
         """
-        # Cronometer stores nutrients per 100g -- normalize from per-serving.
+        values = dict(nutrients)
+
+        energy_kj = values.pop("energy_kj", None)
+        if energy_kj is not None:
+            if "energy" in values or "calories" in values:
+                raise CronometerError("Pass either energy_kj or energy, not both")
+            values["energy"] = float(energy_kj) / 4.184
+
+        salt_g = values.pop("salt_g", None)
+        if salt_g is not None:
+            if "sodium" in values:
+                raise CronometerError("Pass either salt_g or sodium, not both")
+            # Salt is 39.34% sodium by mass (Na 22.99 of NaCl 58.44).
+            values["sodium"] = float(salt_g) * 393.4
+
+        resolved = self.resolve_nutrients(values)
+        if not resolved:
+            raise CronometerError("A custom food needs at least one nutrient")
+
+        # Cronometer stores nutrients per 100g - normalize from per-serving.
         scale = 100.0 / serving_grams if serving_grams > 0 else 1.0
-
-        net_carbs = max(0, carbs_g - fiber_g)
-
-        nutrients = [
-            {"id": NUTRIENT_IDS["energy"], "amount": round(calories * scale, 2)},
-            {"id": NUTRIENT_IDS["protein"], "amount": round(protein_g * scale, 2)},
-            {"id": NUTRIENT_IDS["fat"], "amount": round(fat_g * scale, 2)},
-            {"id": NUTRIENT_IDS["carbs"], "amount": round(carbs_g * scale, 2)},
-            {"id": NUTRIENT_IDS["fiber"], "amount": round(fiber_g * scale, 2)},
-            {"id": NUTRIENT_IDS["sugar"], "amount": round(sugar_g * scale, 2)},
-            {"id": NUTRIENT_IDS["sodium"], "amount": round(sodium_mg * scale, 2)},
-            {
-                "id": NUTRIENT_IDS["saturated_fat"],
-                "amount": round(saturated_fat_g * scale, 2),
-            },
-            # Derived / calculated fields the app includes
-            {"id": -203, "amount": round(protein_g * scale, 2)},
-            {"id": -204, "amount": round(fat_g * scale, 2)},
-            {"id": -205, "amount": round(carbs_g * scale, 2)},
-            {"id": -221, "amount": 0},  # alcohol
-            {"id": NUTRIENT_IDS["net_carbs"], "amount": round(net_carbs * scale, 2)},
-        ]
+        for entry in resolved:
+            entry["amount"] = round(entry["amount"] * scale, 4)
 
         payload = {
             "data": {
                 "id": 0,
                 "name": name,
-                "category": 0,
+                "category": category,
                 "owner": None,
                 "retired": None,
                 "source": None,
                 "defaultMeasureId": 0,
-                "comments": None,
+                "comments": notes,
                 "alternateId": None,
                 "measures": [
                     {
@@ -607,8 +650,8 @@ class CronometerClient:
                         "type": "Atomic",
                     }
                 ],
-                "labelType": "AMERICAN_2016",
-                "nutrients": nutrients,
+                "labelType": label_type,
+                "nutrients": resolved,
                 "properties": {},
                 "foodTags": [],
             },
@@ -622,6 +665,22 @@ class CronometerClient:
 
         logger.info("Created custom food %r (id=%d)", name, food_id)
         return {"food_id": food_id, "measure_id": None}
+
+    def retire_custom_food(self, food_id: int, retired: bool = True) -> dict:
+        """Retire a custom food, which is how Cronometer removes one.
+
+        There is no delete endpoint for foods. Re-sending the food with its
+        `retired` flag set is what the app does: the food stops being offered
+        for new entries, and diary entries already referencing it keep working.
+        Pass retired=False to bring one back.
+        """
+        food = self.get_food(food_id)
+        food["retired"] = retired
+        data = self._request(
+            "/api/v2/add_food", {"data": food, "config": {"call_version": 1}}
+        )
+        logger.info("Set retired=%s on food %s", retired, food_id)
+        return data
 
     # ------------------------------------------------------------------
     # Diary: add serving
@@ -909,6 +968,56 @@ class CronometerClient:
                 }
             self._nutrient_defs = defs
         return self._nutrient_defs
+
+    def nutrient_index(self) -> dict[str, dict]:
+        """Writable nutrients keyed by a stable snake_case name.
+
+        Built from the account's own catalog rather than a hardcoded table, so
+        a nutrient Cronometer adds later needs no change here. Computed fields
+        are excluded: they are derived from the others and cannot be set.
+        """
+        index: dict[str, dict] = {}
+        for nid, meta in self.get_nutrient_definitions().items():
+            if nid in COMPUTED_NUTRIENT_IDS or nid < 0 or not meta.get("name"):
+                continue
+            index[_slug(meta["name"])] = {
+                "id": nid,
+                "name": meta["name"],
+                "unit": meta.get("unit"),
+                "category": meta.get("category"),
+            }
+        return index
+
+    def resolve_nutrients(self, values: dict[str, float]) -> list[dict]:
+        """Map user-supplied nutrient names to the catalog's ids.
+
+        Unknown names raise rather than being dropped: silently ignoring a
+        misspelled nutrient would store a food that looks complete and is not.
+        Only the names given are returned, so an unset nutrient stays unset
+        rather than being written as a zero, which Cronometer treats as the
+        active claim that the food contains none of it.
+        """
+        index = self.nutrient_index()
+        resolved: list[dict] = []
+        unknown: list[str] = []
+
+        for raw_key, amount in values.items():
+            if amount is None:
+                continue
+            key = _slug(str(raw_key))
+            key = NUTRIENT_ALIASES.get(key, key)
+            entry = index.get(key)
+            if entry is None:
+                unknown.append(raw_key)
+                continue
+            resolved.append({"id": entry["id"], "amount": float(amount)})
+
+        if unknown:
+            raise CronometerError(
+                f"Unknown nutrient(s): {', '.join(sorted(unknown))}. "
+                "Call list_nutrients for the accepted names."
+            )
+        return resolved
 
     def get_consumed_nutrients(self, day: date | None = None) -> dict:
         """Get consumed nutrient totals for a day, labeled and summarized.
