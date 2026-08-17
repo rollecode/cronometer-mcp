@@ -38,6 +38,7 @@ EXPECTED_TOOLS = {
     "remove_food_entry",
     "retire_custom_food",
     "search_foods",
+    "set_nutrient_target",
 }
 
 

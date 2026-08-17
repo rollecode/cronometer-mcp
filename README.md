@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.1.1-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.2.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -38,7 +38,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `get_nutrition_scores` | Cronometer's nutrition scores |
 | `search_foods` | Search the food database |
 | `get_food_details` | Full nutrients and serving sizes for one food |
-| `get_targets` | The nutrient goals shown next to your daily totals |
+| `get_targets` | Your nutrient goals and which nutrients are tracked, named and with units |
 | `get_macro_targets` | Your protein, carb and fat goals |
 | `list_biometrics` | What you can measure, and the units each one accepts |
 | `get_biometrics` | One measurement over time |
@@ -66,6 +66,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `delete_fast` | Delete a fast |
 | `copy_day` | Copy one day's diary onto another day |
 | `mark_day_complete` | Mark a day done, or not done |
+| `set_nutrient_target` | Set a nutrient's target or limit, or start tracking it |
 
 ### Custom foods
 
@@ -97,6 +98,22 @@ complete.
 
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
+
+### Targets and tracked nutrients
+
+`set_nutrient_target` covers both the goal and whether a nutrient is tracked at
+all, which is what makes a micronutrient appear in the diary:
+
+```json
+{"nutrient": "protein", "minimum": 145}
+{"nutrient": "iodine", "visible": true}
+{"nutrient": "sodium", "maximum": 2300}
+```
+
+Cronometer's endpoint replaces the whole row rather than patching it, so this
+reads the nutrient's current settings and merges your change into them. Turning
+on visibility therefore keeps whatever target was already set, and each call
+reports the previous values alongside the new ones.
 
 ## How it fits together
 

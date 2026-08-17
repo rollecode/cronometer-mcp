@@ -1127,8 +1127,58 @@ def delete_fast(fast_id: int) -> str:
 def get_targets() -> str:
     """Nutrient targets for the account, as shown beside the diary totals."""
     try:
-        data = _get_client().get_targets()
-        return _ok({"targets": data.get("targets", [])})
+        client = _get_client()
+        defs = client.get_nutrient_definitions()
+        rows = []
+        for row in client.get_targets().get("targets", []):
+            meta = defs.get(row.get("id"), {})
+            rows.append({**row, "name": meta.get("name"), "unit": meta.get("unit")})
+        return _ok({"targets": rows})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def set_nutrient_target(
+    nutrient: str,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    visible: bool | None = None,
+) -> str:
+    """Set a nutrient's daily target, its upper limit, or whether it is tracked.
+
+    Giving a minimum or maximum makes it a custom target, replacing the default
+    Cronometer works out from the profile. Setting visible turns tracking of
+    that nutrient on or off, which is how a micronutrient starts showing up in
+    the diary at all.
+
+    Only what you pass changes: the rest of the nutrient's settings are read
+    first and kept, so turning on visibility never disturbs an existing target.
+
+    Going back to Cronometer's own default is done in the app, under Settings
+    then Targets. Report the current value from get_targets before overwriting
+    one, so it can be put back by hand if wanted.
+
+    Args:
+        nutrient: Nutrient name, e.g. "protein", "iodine", "choline", "biotin".
+            Call list_nutrients for the accepted names.
+        minimum: Daily target, in that nutrient's own unit.
+        maximum: Upper limit, in that nutrient's own unit.
+        visible: True to track the nutrient, False to hide it.
+    """
+    try:
+        client = _get_client()
+        if minimum is None and maximum is None and visible is None:
+            return _err(ValueError("Give at least one of minimum, maximum or visible"))
+        previous = None
+        index = client.nutrient_index()
+        entry = index.get(nutrient.strip().lower().replace(" ", "_"))
+        if entry:
+            previous = client.find_target(entry["id"])
+        result = client.set_target(
+            nutrient, minimum=minimum, maximum=maximum, visible=visible
+        )
+        return _ok({**result, "previous": previous})
     except Exception as e:
         return _err(e)
 

@@ -1581,6 +1581,78 @@ class CronometerClient:
         logger.info("Fetched nutrient targets")
         return data
 
+    def find_target(self, nutrient_id: int) -> dict | None:
+        """The current target row for one nutrient, or None if it has none."""
+        for row in self.get_targets().get("targets", []):
+            if row.get("id") == nutrient_id:
+                return row
+        return None
+
+    def set_target(
+        self,
+        nutrient: str,
+        *,
+        minimum: float | None = None,
+        maximum: float | None = None,
+        visible: bool | None = None,
+        custom: bool | None = None,
+    ) -> dict:
+        """Set a nutrient's target, its maximum, or whether it is shown.
+
+        edit_target replaces the whole row rather than patching it: a field left
+        out of the request is cleared, not kept. So the current row is read and
+        merged first, which is what stops "just make iodine visible" from also
+        wiping the iodine target that was already there.
+
+        The write field is `cus` while the read field is `custom`, and the two
+        are translated here.
+
+        Uses: POST /api/v2/edit_target
+        """
+        index = self.nutrient_index()
+        key = _slug(nutrient)
+        key = NUTRIENT_ALIASES.get(key, key)
+        entry = index.get(key)
+        if entry is None:
+            raise CronometerError(
+                f"Unknown nutrient: {nutrient}. Call list_nutrients for the names."
+            )
+        nutrient_id = entry["id"]
+
+        current = self.find_target(nutrient_id) or {}
+        merged = {
+            "id": nutrient_id,
+            "cus": current.get("custom", False),
+            "vis": current.get("vis", True),
+        }
+        if "min" in current:
+            merged["min"] = float(current["min"])
+        if "max" in current:
+            merged["max"] = float(current["max"])
+
+        if minimum is not None:
+            merged["min"] = float(minimum)
+        if maximum is not None:
+            merged["max"] = float(maximum)
+        if visible is not None:
+            merged["vis"] = bool(visible)
+        # Giving a value makes it a custom target unless told otherwise, since
+        # that is the only reading of "set protein to 145" that does anything.
+        if custom is not None:
+            merged["cus"] = bool(custom)
+        elif minimum is not None or maximum is not None:
+            merged["cus"] = True
+
+        self._request("/api/v2/edit_target", merged)
+        logger.info(
+            "Set target for %s (id=%d): %s", entry["name"], nutrient_id, merged
+        )
+        return {
+            "nutrient": entry["name"],
+            "unit": entry["unit"],
+            "target": self.find_target(nutrient_id),
+        }
+
 
 # ======================================================================
 # Helpers

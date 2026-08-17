@@ -1,3 +1,9 @@
+### 1.2.0: 2026-08-17
+
+* Set nutrient targets and limits
+* Turn tracking of a nutrient on or off
+* Name and unit each target in `get_targets`
+
 ### 1.1.1: 2026-08-17
 
 * Add step-by-step self-hosting instructions
