@@ -624,6 +624,37 @@ app.use(express.static(path.join(__dirname, 'public'), { maxAge: '7d' }));
 
 app.get('/healthz', (_req, res) => res.type('text').send('ok'));
 
+// Clients that show an icon for the connector look for it at the site root, not
+// at /favicon.ico. With the root answering 404 JSON there is no markup to read
+// an icon from, so they fall back to the registrable domain's favicon - which is
+// a different site entirely. Serving real markup here is what fixes that.
+app.get('/', (_req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cronometer MCP</title>
+<meta name="description" content="MCP server for a Cronometer food diary.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon.png">
+<style>
+  :root{color-scheme:light dark;--fg:#111;--muted:#666;--bg:#fff}
+  @media (prefers-color-scheme:dark){:root{--fg:#eee;--muted:#999;--bg:#0e0e0e}}
+  body{font:15px/1.5 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);
+       display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:1.5rem}
+  main{max-width:20rem}
+  img{display:block;width:40px;height:40px;margin-bottom:1.25rem}
+  h1{font-size:1rem;font-weight:600;margin:0 0 .25rem}
+  p{color:var(--muted);margin:0}
+</style></head><body>
+  <main>
+    <img src="/icon.png" alt="">
+    <h1>Cronometer</h1>
+    <p>MCP endpoint. Add it as a connector to use it.</p>
+  </main>
+</body></html>`);
+});
+
 // A CDN will happily cache a 404 for an asset path for an hour, so a file added
 // after the first request stays missing long after it exists.
 app.use((_req, res) => {

@@ -1,3 +1,7 @@
+### 1.0.2: 2026-08-17
+
+* Serve an icon-bearing page at the root
+
 ### 1.0.1: 2026-08-17
 
 * Serve a Cronometer favicon and icon
