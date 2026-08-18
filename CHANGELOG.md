@@ -1,3 +1,10 @@
+### 1.3.0: 2026-08-18
+
+* Return every nutrient eaten, not only tracked ones
+* Flag each nutrient as tracked or not
+* Add `include_untracked` to keep the old view
+* Round summed amounts by significant figures
+
 ### 1.2.1: 2026-08-17
 
 * Offer the icon in 48, 96 and 256 px, Ref: [SEP-973](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1040#issuecomment-3967699520)

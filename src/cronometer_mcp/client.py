@@ -10,6 +10,7 @@ logging in and the earliest endpoints work.
 
 import json
 import logging
+import math
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -112,6 +113,20 @@ NUTRIENT_ALIASES = {
     "lutein": "lutein_zeaxanthin",
     "zeaxanthin": "lutein_zeaxanthin",
 }
+
+
+def _round_sig(value: float, digits: int = 6) -> float:
+    """Round to significant figures rather than decimal places.
+
+    Summing per-entry amounts accumulates float error, so a round 100 mg arrives
+    as 99.9997. A fixed number of decimals cannot fix that for both ends of the
+    range at once: enough precision for a microgram of B12 leaves the milligram
+    values ragged, and enough rounding to tidy those flattens the micrograms to
+    zero.
+    """
+    if not value or not math.isfinite(value):
+        return value
+    return round(value, -math.floor(math.log10(abs(value))) + (digits - 1))
 
 
 def _slug(name: str) -> str:
@@ -1019,26 +1034,32 @@ class CronometerClient:
             )
         return resolved
 
-    def get_consumed_nutrients(self, day: date | None = None) -> dict:
+    def get_consumed_nutrients(
+        self, day: date | None = None, *, include_untracked: bool = True
+    ) -> dict:
         """Get consumed nutrient totals for a day, labeled and summarized.
 
-        Builds a clean summary from the server-computed per-nutrient totals in
-        get_nutrition_scores (the "All Targets" category), which reflect exactly
-        the nutrients the user is tracking (i.e. has targets set for). Each
-        nutrient is labeled with its name, unit, and category via the nutrient
-        definition catalog.
+        Tracked nutrients come from the server-computed totals in
+        get_nutrition_scores ("All Targets"), so they match what the app shows.
+
+        Cronometer only scores what has a target, so that source silently omits
+        everything else: with no caffeine target set, a day's coffee reports no
+        caffeine at all, and a consumer cannot tell that from a genuine zero.
+        With include_untracked the remaining nutrients are summed from the
+        diary's own per-entry amounts instead, which reproduce the server totals
+        to within rounding. Each nutrient carries `tracked` so a value with a
+        target is never confused with one that is informational only.
 
         Returns a dict:
             {
                 "macros": {energy, protein, carbs, net_carbs, fat, fiber,
-                           alcohol},  # flat amounts (None if not tracked)
+                           alcohol},  # flat amounts (None if absent that day)
                 "nutrients": [
-                    {id, name, amount, unit, category, confidence}, ...
+                    {id, name, amount, unit, category, confidence, tracked}, ...
                 ],
+                "tracked_count": int,
+                "untracked_count": int,
             }
-
-        Note: a nutrient only appears if the user tracks it in Cronometer. To
-        see e.g. saturated fat, the user must have a target set for it.
         """
         scores = self.get_nutrition_scores(day)
 
@@ -1068,17 +1089,50 @@ class CronometerClient:
                     "unit": meta.get("unit"),
                     "category": meta.get("category"),
                     "confidence": comp.get("confidence"),
+                    "tracked": True,
                 }
             )
+
+        tracked_count = len(nutrients)
+
+        if include_untracked:
+            totals: dict[int, float] = {}
+            diary = self.enrich_diary_servings(self.get_diary(day))
+            for entry in diary.get("diary", []):
+                for item in entry.get("nutrients") or []:
+                    nid, amount = item.get("id"), item.get("amount")
+                    if nid is None or amount is None or nid in amounts_by_id:
+                        continue
+                    totals[nid] = totals.get(nid, 0.0) + amount
+            for nid, amount in sorted(totals.items()):
+                meta = defs.get(nid, {})
+                nutrients.append(
+                    {
+                        "id": nid,
+                        "name": meta.get("name"),
+                        "amount": _round_sig(amount),
+                        "unit": meta.get("unit"),
+                        "category": meta.get("category"),
+                        "confidence": None,
+                        "tracked": False,
+                    }
+                )
+                amounts_by_id[nid] = amount
 
         macros = {key: amounts_by_id.get(nid) for key, nid in SUMMARY_MACRO_IDS.items()}
 
         logger.info(
-            "Built consumed nutrient summary for %s (%d tracked nutrients)",
+            "Built consumed nutrient summary for %s (%d tracked, %d untracked)",
             self._format_day(day),
-            len(nutrients),
+            tracked_count,
+            len(nutrients) - tracked_count,
         )
-        return {"macros": macros, "nutrients": nutrients}
+        return {
+            "macros": macros,
+            "nutrients": nutrients,
+            "tracked_count": tracked_count,
+            "untracked_count": len(nutrients) - tracked_count,
+        }
 
     def enrich_diary_servings(self, diary: dict) -> dict:
         """Merge food metadata into a raw get_diary payload (best-effort).

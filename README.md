@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.2.1-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.3.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -34,7 +34,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | Tool | What you get |
 | --- | --- |
 | `get_food_log` | Everything in the diary for one day. Each food comes with its name, where it came from, the serving size, how many servings, and what that food added to your nutrients. You also get calories (target, eaten, left) and totals for every nutrient you track |
-| `get_daily_nutrition` | Nutrient totals for one day |
+| `get_daily_nutrition` | Totals for every nutrient eaten that day, each flagged tracked or not |
 | `get_nutrition_scores` | Cronometer's nutrition scores |
 | `search_foods` | Search the food database |
 | `get_food_details` | Full nutrients and serving sizes for one food |
@@ -99,7 +99,29 @@ complete.
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
 
-### Targets and tracked nutrients
+### Tracked and untracked nutrients
+
+Cronometer's own daily summary covers only nutrients with a target set. Anything
+else is left out entirely, which for a consumer reading the response is
+indistinguishable from having eaten none of it. Log a coffee with no caffeine
+target set, and the day's summary reports no caffeine at all.
+
+`get_daily_nutrition` and `get_food_log` therefore return everything eaten, and
+mark each nutrient with `tracked`:
+
+```json
+{"id": 262, "name": "Caffeine", "amount": 80.0, "unit": "mg", "tracked": false}
+```
+
+`tracked: false` means no target is set, so the figure stands on its own and
+nothing can be said about being over or under. Tracked amounts come from
+Cronometer's own totals and match the app; untracked ones are summed from the
+day's entries, which reproduces those totals to within rounding.
+
+Pass `include_untracked=false` for the app's narrower view. Depending on how many
+targets you have set, that can easily halve the number of nutrients returned.
+
+### Setting targets
 
 `set_nutrient_target` covers both the goal and whether a nutrient is tracked at
 all, which is what makes a micronutrient appear in the diary:

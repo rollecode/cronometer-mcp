@@ -128,7 +128,7 @@ def _err(e: Exception) -> str:
         "openWorldHint": True,
     }
 )
-def get_food_log(date: str | None = None) -> str:
+def get_food_log(date: str | None = None, include_untracked: bool = True) -> str:
     """Get all diary entries for a given date.
 
     Returns every food entry logged for the day. Each "Serving" entry is
@@ -153,15 +153,19 @@ def get_food_log(date: str | None = None) -> str:
         deriving values from the burn breakdown fields.
 
     Also returns a nutrition_summary field with consumed totals for every
-    nutrient the user tracks in Cronometer (macros plus any tracked
-    micronutrients such as saturated fat, cholesterol, or omega-3/6):
+    nutrient eaten that day:
 
       - macros: flat macro totals (energy, protein, carbs, net_carbs, fat,
         fiber, alcohol)
-      - nutrients: the full list of tracked nutrients with amounts and units
+      - nutrients: every nutrient with amount, unit and `tracked`, which says
+        whether it has a target set in Cronometer. Untracked ones were still
+        eaten; they just have nothing to measure against, so report them as
+        plain figures and never as over or under target.
 
     Args:
         date: Date as YYYY-MM-DD (defaults to today).
+        include_untracked: Leave true for everything eaten. False restricts the
+            summary to nutrients with targets, matching the app's own summary.
     """
     try:
         client = _get_client()
@@ -180,7 +184,9 @@ def get_food_log(date: str | None = None) -> str:
                 "remaining_kcal": round(target - consumed),
             }
 
-        nutrition_summary = client.get_consumed_nutrients(day)
+        nutrition_summary = client.get_consumed_nutrients(
+            day, include_untracked=include_untracked
+        )
 
         return _ok(
             {
@@ -381,33 +387,42 @@ def copy_day(date: str | None = None) -> str:
         "openWorldHint": True,
     }
 )
-def get_daily_nutrition(date: str | None = None) -> str:
-    """Get daily nutrition summary with consumed macro and micronutrient totals.
+def get_daily_nutrition(date: str | None = None, include_untracked: bool = True) -> str:
+    """Get daily nutrition totals for every nutrient eaten that day.
 
-    Returns the amounts actually consumed for the day, covering every nutrient
-    the user tracks in Cronometer (i.e. has a target set for). The response has:
+    The response has:
 
       - summary: flat macro totals (energy, protein, carbs, net_carbs, fat,
-        fiber, alcohol). A value is null if that macro isn't tracked.
-      - nutrients: the full list of tracked nutrients, each with id, name,
-        amount, unit, category, and confidence.
+        fiber, alcohol). A value is null if nothing that day contained it.
+      - nutrients: each with id, name, amount, unit, category, confidence and
+        `tracked`.
+      - tracked_count and untracked_count.
 
-    A nutrient only appears if it's tracked in Cronometer. To surface e.g.
-    saturated fat, cholesterol, or trans fat, set a target for it in Cronometer
-    and it will flow through automatically.
+    `tracked` says whether that nutrient has a target set in Cronometer.
+    Untracked nutrients are still eaten and still counted here; they simply have
+    nothing to measure against, and Cronometer's own summary leaves them out. So
+    an absent nutrient means none was eaten, rather than none being tracked.
+
+    Report an untracked amount as a plain figure. It has no target, so never
+    describe it as over, under or on track, and offer set_nutrient_target if a
+    target would be useful.
 
     Args:
         date: Date as YYYY-MM-DD (defaults to today).
+        include_untracked: Leave true for everything eaten. False restricts the
+            response to nutrients with targets, matching the app's own summary.
     """
     try:
         client = _get_client()
         day = _parse_date(date)
-        data = client.get_consumed_nutrients(day)
+        data = client.get_consumed_nutrients(day, include_untracked=include_untracked)
         return _ok(
             {
                 "date": date or str(date_module_today()),
                 "summary": data["macros"],
                 "nutrients": data["nutrients"],
+                "tracked_count": data["tracked_count"],
+                "untracked_count": data["untracked_count"],
             }
         )
     except Exception as e:
@@ -427,11 +442,12 @@ def get_nutrition_scores(date: str | None = None) -> str:
 
     Returns category scores (All Targets, Vitamins, Minerals, Electrolytes,
     Antioxidants, Immune Support, Metabolism, Bone Health) with the actual
-    consumed amount and confidence level for each tracked nutrient.
+    consumed amount and confidence level for each nutrient.
 
-    This is the richest nutrition endpoint -- use it when you need to know
-    both how much of each nutrient was consumed AND how close each is to
-    the target.
+    This is Cronometer's own scoring, so it covers only nutrients with a target;
+    scoring one without a target would have nothing to score against. Use it to
+    see how close each nutrient is to its target, and get_daily_nutrition when
+    you need everything that was actually eaten.
 
     Args:
         date: Date as YYYY-MM-DD (defaults to today).
