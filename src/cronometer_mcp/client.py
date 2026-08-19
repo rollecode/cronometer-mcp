@@ -400,8 +400,17 @@ class CronometerClient:
         # session comes back as {"result": "FAIL", "error": "..."}; "FAILURE" is
         # kept defensively (never observed in real traffic, but harmless).
         if isinstance(data, dict) and data.get("result") in ("FAIL", "FAILURE"):
-            if not _retried:
-                logger.warning("Cronometer request failed, re-authenticating: %s", data)
+            # Only an auth-shaped failure earns a re-login. Treating every FAIL
+            # as an expired session turns a burst of validation errors (bad
+            # parameter, unknown enum) into a login storm, and Cronometer
+            # rate-limits logins hard enough that the storm locks the account
+            # out for a while.
+            error_text = str(data.get("error", "")).lower()
+            auth_shaped = any(
+                w in error_text for w in ("token", "session", "auth", "login")
+            )
+            if auth_shaped and not _retried:
+                logger.warning("Cronometer session rejected, re-authenticating: %s", data)
                 self._invalidate_session()
                 self.login()
                 return self._request(endpoint, payload, _retried=True)
@@ -680,6 +689,136 @@ class CronometerClient:
 
         logger.info("Created custom food %r (id=%d)", name, food_id)
         return {"food_id": food_id, "measure_id": None}
+
+    def get_recent_foods(self) -> list[dict]:
+        """Recently logged foods with how often each was logged.
+
+        Uses: POST /api/v2/get_recent_foods
+        """
+        data = self._request("/api/v2/get_recent_foods", {})
+        out = []
+        for row in data.get("servings", []):
+            food = row.get("food") or {}
+            out.append(
+                {
+                    "food_id": food.get("id"),
+                    "name": food.get("name"),
+                    "times_logged": row.get("count"),
+                    "default_measure_id": food.get("defaultMeasureId"),
+                    "is_recipe": bool(food.get("meal")),
+                }
+            )
+        logger.info("Fetched %d recent foods", len(out))
+        return out
+
+    def get_streak(self, day: date | None = None) -> dict:
+        """Diary logging streaks as of a day.
+
+        Uses: POST /api/v2/get_streak
+        """
+        data = self._request("/api/v2/get_streak", {"day": self._format_day(day)})
+        logger.info("Fetched streaks")
+        return data
+
+    def get_profile(self) -> dict:
+        """The account profile: birthdate, gender, timezone, language.
+
+        Uses: POST /api/v2/get_profile
+        """
+        data = self._request("/api/v2/get_profile", {})
+        logger.info("Fetched profile")
+        return data
+
+    def create_recipe(
+        self,
+        name: str,
+        ingredients: list[dict],
+        *,
+        servings: float = 1.0,
+        notes: str | None = None,
+        recipe_id: int = 0,
+    ) -> dict:
+        """Create a recipe: a food whose nutrients come from its ingredients.
+
+        Each ingredient is {"food_id": int, "grams": float, "measure_id": int
+        (optional)}. Nutrients are not sent - Cronometer sums them from the
+        ingredients itself, which is the whole point of a recipe over a custom
+        food. `servings` says how many portions the batch makes, and becomes a
+        "serving" measure of total_grams/servings so one portion can be logged
+        directly.
+
+        Passing recipe_id updates that recipe in place instead of creating one,
+        replacing its ingredient list.
+
+        Uses: POST /api/v2/add_food with meal=true
+        """
+        if not ingredients:
+            raise CronometerError("A recipe needs at least one ingredient")
+        rows = []
+        total_grams = 0.0
+        for ing in ingredients:
+            food_id = ing.get("food_id") or ing.get("foodId")
+            grams = ing.get("grams")
+            if not food_id or not grams:
+                raise CronometerError(
+                    "Each ingredient needs food_id and grams, got: " f"{ing}"
+                )
+            rows.append(
+                {
+                    "foodId": int(food_id),
+                    "measureId": int(ing.get("measure_id") or ing.get("measureId") or 0),
+                    "grams": float(grams),
+                    "amount": 1.0,
+                }
+            )
+            total_grams += float(grams)
+
+        if servings <= 0:
+            raise CronometerError("servings must be positive")
+        per_serving = round(total_grams / servings, 1)
+
+        payload = {
+            "data": {
+                "id": recipe_id,
+                "name": name,
+                "category": 0,
+                "owner": None,
+                "retired": None,
+                "source": None,
+                "defaultMeasureId": 0,
+                "comments": notes,
+                "alternateId": None,
+                "measures": [
+                    {
+                        "id": 0,
+                        "name": "serving",
+                        "value": per_serving,
+                        "amount": 1.0,
+                        "type": "Atomic",
+                    }
+                ],
+                "labelType": "AMERICAN_2016",
+                "nutrients": [],
+                "properties": {},
+                "foodTags": [],
+                "meal": True,
+                "ingredients": rows,
+            },
+            "config": {"call_version": 1},
+        }
+        data = self._request("/api/v2/add_food", payload)
+        food_id = data.get("id")
+        if not food_id:
+            raise CronometerError(f"Failed to create recipe: {data}")
+        logger.info(
+            "Created recipe %r (id=%d, %d ingredients, %.0fg, %s servings)",
+            name, food_id, len(rows), total_grams, servings,
+        )
+        return {
+            "food_id": food_id,
+            "total_grams": total_grams,
+            "grams_per_serving": per_serving,
+        }
 
     def retire_custom_food(self, food_id: int, retired: bool = True) -> dict:
         """Retire a custom food, which is how Cronometer removes one.

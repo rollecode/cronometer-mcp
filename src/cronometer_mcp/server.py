@@ -636,6 +636,107 @@ def add_custom_food(
         return _err(e)
 
 
+_READ = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+
+@mcp.tool(annotations=_READ)
+def get_recent_foods() -> str:
+    """Recently logged foods with how often each was logged.
+
+    The fastest route for "log my usual": find the food here, then
+    add_food_entry. Recipes are flagged so a whole batch is not logged as one
+    portion by mistake.
+    """
+    try:
+        return _ok({"foods": _get_client().get_recent_foods()})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_READ)
+def get_streak(date: str | None = None) -> str:
+    """Diary logging streaks: current run of fully logged days, and the record.
+
+    Args:
+        date: Day to count back from as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        return _ok(_get_client().get_streak(_parse_date(date)))
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_READ)
+def get_profile() -> str:
+    """The account profile: birthdate, gender, timezone and language."""
+    try:
+        return _ok({"profile": _get_client().get_profile()})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def create_recipe(
+    name: str,
+    ingredients: list[dict],
+    servings: float = 1.0,
+    notes: str | None = None,
+    recipe_id: int | None = None,
+) -> str:
+    """Create a recipe from ingredients, or update one by passing recipe_id.
+
+    Cronometer sums the nutrients from the ingredients itself, so unlike
+    add_custom_food you give foods and amounts, not nutrient values. Use
+    search_foods to find each ingredient's food_id and measure_id first.
+
+    A "serving" measure is created as total grams divided by servings, so one
+    portion can be logged straight away with add_food_entry: use the returned
+    food_id, the serving measure_id from get_food_details, and
+    grams_per_serving.
+
+    Updating with recipe_id replaces the whole ingredient list, so pass every
+    ingredient, not only new ones. Recipes are removed with retire_custom_food,
+    the same as custom foods.
+
+    Args:
+        name: Recipe name.
+        ingredients: List of {"food_id": int, "grams": float,
+            "measure_id": int (optional)}.
+        servings: How many portions the batch makes.
+        notes: Free-text note stored on the recipe.
+        recipe_id: Existing recipe to update in place.
+    """
+    try:
+        client = _get_client()
+        result = client.create_recipe(
+            name,
+            ingredients,
+            servings=servings,
+            notes=notes,
+            recipe_id=recipe_id or 0,
+        )
+        food = client.get_food(result["food_id"])
+        measures = [
+            {"measure_id": m["id"], "name": m["name"], "grams": m["value"]}
+            for m in food.get("measures", [])
+        ]
+        return _ok(
+            {
+                **result,
+                "servings": servings,
+                "measures": measures,
+                "note": "Log one portion with add_food_entry using the serving measure.",
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
 @mcp.tool(annotations=_DESTRUCTIVE)
 def retire_custom_food(food_id: int, retired: bool = True) -> str:
     """Retire a custom food so it stops being offered for new entries.

@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.3.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.4.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -45,6 +45,9 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `get_fasting_history` | Fasts between two dates |
 | `get_fasting_stats` | Fasting totals and averages |
 | `list_nutrients` | Every nutrient you can set on a custom food, with units |
+| `get_recent_foods` | Recently logged foods and how often each was logged |
+| `get_streak` | Current and record run of fully logged days |
+| `get_profile` | Account profile: birthdate, gender, timezone, language |
 
 ### Writing
 
@@ -54,6 +57,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `edit_food_entry` | Change how much you ate, or when |
 | `remove_food_entry` | Delete food entries |
 | `add_custom_food` | Create your own food, with up to all 94 nutrients |
+| `create_recipe` | Create or update a recipe from ingredients |
 | `retire_custom_food` | Retire a custom food, or bring one back |
 | `add_note` | Write a note on a day |
 | `edit_note` | Rewrite a note |

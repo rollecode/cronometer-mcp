@@ -1,3 +1,11 @@
+### 1.4.0: 2026-08-19
+
+* Create and update recipes from ingredients
+* List recently logged foods with counts
+* Show logging streaks
+* Read the account profile
+* Re-login only on auth errors, not every failure
+
 ### 1.3.0: 2026-08-18
 
 * Return every nutrient eaten, not only tracked ones

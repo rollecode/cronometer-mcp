@@ -74,17 +74,22 @@ def test_fail_invalidates_token_logs_in_and_retries_once(tmp_path):
     assert state["post"] == 2
 
 
-def test_failure_variant_still_retries(tmp_path):
-    """HTTP 200 + result:"FAILURE" retains the original retry behavior."""
+def test_non_auth_failure_raises_without_relogin(tmp_path):
+    """A FAIL that is not auth-shaped must not trigger a login.
+
+    Re-logging-in on every failure turns a burst of validation errors into a
+    login storm, and Cronometer rate-limits logins hard enough to lock the
+    account out. Only token/session/auth/login errors earn a retry.
+    """
     client, state = make_client(
         tmp_path, [SYNTHETIC_FAILURE_BODY, {"result": "SUCCESS", "id": 1}]
     )
 
-    result = client._request("/api/v2/get_diary", {})
+    with pytest.raises(CronometerError):
+        client._request("/api/v2/get_diary", {})
 
-    assert result == {"result": "SUCCESS", "id": 1}
-    assert state["login"] == 1
-    assert state["post"] == 2
+    assert state["login"] == 0
+    assert state["post"] == 1
 
 
 def test_second_failure_raises(tmp_path):
