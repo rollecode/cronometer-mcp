@@ -229,7 +229,8 @@ def add_food_entry(
     Args:
         food_id: Numeric food ID from search_foods results.
         measure_id: Measure/unit ID from get_food_details.
-        grams: Weight of the serving in grams.
+        grams: Weight of the serving in grams. Real grams for recipes too:
+            the conversion to Cronometer's batch units happens here.
         date: Date to log as YYYY-MM-DD (defaults to today).
         translation_id: Translation ID from search results (usually 0).
         diary_group: Meal slot -- one of "auto", "breakfast", "lunch",

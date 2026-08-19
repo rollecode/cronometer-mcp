@@ -1,3 +1,9 @@
+### 1.4.1: 2026-08-19
+
+* Log recipe portions in real grams
+* Show real grams for recipe entries in the log
+* Fix recipe nutrient scaling in the food log
+
 ### 1.4.0: 2026-08-19
 
 * Create and update recipes from ingredients

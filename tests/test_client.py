@@ -169,8 +169,10 @@ def test_add_serving_cold_start_embeds_real_user_id(tmp_path):
     client.add_serving(food_id=1, measure_id=0, grams=100.0)
 
     assert state["login"] == 1
-    assert state["post"] == 1  # no stale-payload double failure (#31)
-    assert state["payloads"][0]["serving"]["userId"] == 42
+    # get_food lookup for recipe-unit conversion + the write itself;
+    # still no failure-retry doubling (#31)
+    assert state["post"] == 2
+    assert state["payloads"][-1]["serving"]["userId"] == 42
 
 
 def test_user_id_property_triggers_login(tmp_path):
@@ -213,7 +215,7 @@ SAMPLE_DIARY = {
             "type": "Serving",
             "foodId": 300,
             "measureId": 30,
-            "grams": 1.1,  # Recipe: "grams" is a serving count, not grams
+            "grams": 1.1,  # recipes store hundredths of the batch here
             "order": 65539,
         },
         {"type": "Exercise", "name": "Running", "order": 1},
@@ -242,6 +244,7 @@ SAMPLE_FOODS = [
     {
         "id": 300,
         "name": "Recipe Food",
+        "meal": True,
         "source": "Custom",
         "defaultMeasureId": 30,
         "measures": [
@@ -296,12 +299,17 @@ def test_enrich_diary_merges_names_measures_and_scaled_nutrients(tmp_path):
     assert recipe["name"] == "Recipe Food"
     assert recipe["measure"]["measure_id"] == 30
     assert recipe["measure"]["name"] == "serving"
-    # Recipe measure: nutrients are per-serving and "grams" is a serving count,
-    # so 708.538 kcal/serving * 1.1 servings -> 779.39 (not grams/100)
+    # Cronometer scales every entry by grams/100, and recipes store nutrients
+    # per full batch, so grams=1.1 means 1.1% of the batch (verified live:
+    # grams=1 on a real recipe booked 1/100 of the batch).
     energy = next(n for n in recipe["nutrients"] if n["id"] == 208)
-    assert energy["amount"] == 779.3918
+    assert energy["amount"] == 7.7939
     protein = next(n for n in recipe["nutrients"] if n["id"] == 203)
-    assert protein["amount"] == 61.633
+    assert protein["amount"] == 0.6163
+    # Real grams are translated back from the batch weight (233.4 g "g" measure)
+    assert recipe["grams_actual"] == 2.6
+    assert recipe["batch_fraction"] == 0.011
+    assert "servings" not in recipe
 
     # Non-Serving entry untouched
     assert entries[3] == {"type": "Exercise", "name": "Running", "order": 1}

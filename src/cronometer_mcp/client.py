@@ -840,6 +840,49 @@ class CronometerClient:
     # Diary: add serving
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _meal_total_grams(food: dict) -> float | None:
+        """Total batch weight of a recipe, or None for a normal food.
+
+        Recipes (meal=true) store their nutrients per full batch rather than
+        per 100 g, so the diary's grams field means hundredths of the batch for
+        them. Everything that converts needs the batch weight, which lives on
+        the auto-created "g" measure, with the ingredient sum as fallback.
+        """
+        if not food.get("meal"):
+            return None
+        for m in food.get("measures", []):
+            if isinstance(m, dict) and m.get("type") == "Recipe" and m.get("name") == "g":
+                value = m.get("value")
+                if isinstance(value, (int, float)) and value > 0:
+                    return float(value)
+        total = sum(
+            float(i.get("grams") or 0)
+            for i in food.get("ingredients", [])
+            if isinstance(i, dict)
+        )
+        return total or None
+
+    def _to_diary_grams(self, food_id: int, grams: float) -> float:
+        """Convert real grams to the unit the diary stores for this food.
+
+        Cronometer scales every diary entry by grams/100 against the food's
+        stored nutrients. Normal foods store per 100 g, so grams pass through.
+        Recipes store per full batch, so real grams become hundredths of the
+        batch here - without this, logging 337 g of a 505 g recipe would book
+        3.37 whole batches.
+        """
+        food = self.get_food(food_id)
+        total = self._meal_total_grams(food)
+        if total is None:
+            return grams
+        converted = grams / total * 100.0
+        logger.info(
+            "Recipe %s: %.1f g of a %.0f g batch -> diary grams %.2f",
+            food_id, grams, total, converted,
+        )
+        return converted
+
     def add_serving(
         self,
         food_id: int,
@@ -871,6 +914,8 @@ class CronometerClient:
 
         if diary_group == 0:
             diary_group = _meal_group_for_hour(now.hour)
+
+        grams = self._to_diary_grams(food_id, grams)
 
         serving = {
             "order": (diary_group << 16) | 1,
@@ -1357,17 +1402,28 @@ class CronometerClient:
                 ):
                     entry["servings"] = round(grams / grams_per_unit, 4)
 
-            # Nutrient scaling depends on the measure type:
-            #   - Recipe measures: nutrients are stored per one reference
-            #     serving and the diary "grams" field is a serving count, so
-            #     scale by grams directly.
-            #   - Weight/Atomic measures: nutrients are stored per-100g and
-            #     "grams" is real grams, so scale by grams / 100.
-            if isinstance(grams, (int, float)):
-                if measure and measure.get("type") == "Recipe":
-                    scale = grams
+            # Cronometer scales every entry by grams/100 against the food's
+            # stored nutrients, verified live (a grams=1 entry of a recipe
+            # booked 1/100 of the batch). Recipes store per full batch, so
+            # their stored grams are hundredths of the batch - translate that
+            # back to real grams for display, or the log reads "66.7 g" for a
+            # 337 g portion.
+            total_grams = self._meal_total_grams(food)
+            if total_grams and isinstance(grams, (int, float)):
+                real_grams = grams / 100.0 * total_grams
+                entry["grams_actual"] = round(real_grams, 1)
+                entry["batch_fraction"] = round(grams / 100.0, 4)
+                if (
+                    measure
+                    and isinstance(measure.get("value"), (int, float))
+                    and measure.get("type") != "Recipe"
+                    and measure["value"]
+                ):
+                    entry["servings"] = round(real_grams / measure["value"], 4)
                 else:
-                    scale = grams / 100.0
+                    entry.pop("servings", None)
+            if isinstance(grams, (int, float)):
+                scale = grams / 100.0
                 scaled: list[dict] = []
                 for n in food.get("nutrients", []):
                     if not isinstance(n, dict):
@@ -1564,7 +1620,7 @@ class CronometerClient:
         """
         serving = self.find_entry(serving_id, "Serving", day)
         if grams is not None:
-            serving["grams"] = grams
+            serving["grams"] = self._to_diary_grams(serving["foodId"], grams)
         if time is not None:
             serving["time"] = time
         data = self._request("/api/v2/edit_serving", {"serving": serving})
