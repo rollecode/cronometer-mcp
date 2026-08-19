@@ -789,13 +789,24 @@ class CronometerClient:
                 "comments": notes,
                 "alternateId": None,
                 "measures": [
+                    # Recipe-type measures count units per batch: "serving" of
+                    # a 4-portion batch has value 4, "g" has the batch grams.
+                    # An Atomic measure here is what made the app read entries
+                    # 100x off, and a missing "g" is what books whole batches.
                     {
                         "id": 0,
                         "name": "serving",
-                        "value": per_serving,
+                        "value": float(servings),
                         "amount": 1.0,
-                        "type": "Atomic",
-                    }
+                        "type": "Recipe",
+                    },
+                    {
+                        "id": 0,
+                        "name": "g",
+                        "value": float(total_grams),
+                        "amount": 1.0,
+                        "type": "Recipe",
+                    },
                 ],
                 "labelType": "AMERICAN_2016",
                 "nutrients": [],
@@ -863,25 +874,39 @@ class CronometerClient:
         )
         return total or None
 
-    def _to_diary_grams(self, food_id: int, grams: float) -> float:
-        """Convert real grams to the unit the diary stores for this food.
+    def _recipe_gram_measure(self, food_id: int) -> int | None:
+        """The id of a recipe's gram measure, or None for a normal food.
 
-        Cronometer scales every diary entry by grams/100 against the food's
-        stored nutrients. Normal foods store per 100 g, so grams pass through.
-        Recipes store per full batch, so real grams become hundredths of the
-        batch here - without this, logging 337 g of a 505 g recipe would book
-        3.37 whole batches.
+        Recipe entries book grams/measure.value of the batch when they point at
+        a Recipe measure, so real grams need the "g" measure (value = batch
+        grams). Fresh recipes get one automatically with id 0, but a recipe can
+        lack it - and an entry whose measureId matches nothing books grams
+        WHOLE BATCHES, which put +372k kcal on a real diary day once. So a
+        missing gram measure is added to the food here before anything logs
+        against it.
         """
         food = self.get_food(food_id)
+        if not food.get("meal"):
+            return None
+        for m in food.get("measures", []):
+            if m.get("type") == "Recipe" and m.get("name") == "g":
+                return int(m.get("id") or 0)
         total = self._meal_total_grams(food)
-        if total is None:
-            return grams
-        converted = grams / total * 100.0
-        logger.info(
-            "Recipe %s: %.1f g of a %.0f g batch -> diary grams %.2f",
-            food_id, grams, total, converted,
-        )
-        return converted
+        if not total:
+            raise CronometerError(
+                f"Recipe {food_id} has no gram measure and no ingredients to "
+                "derive one from"
+            )
+        food["measures"] = list(food.get("measures", [])) + [
+            {"id": 0, "name": "g", "value": float(total), "amount": 1.0, "type": "Recipe"}
+        ]
+        self._request("/api/v2/add_food", {"data": food, "config": {"call_version": 1}})
+        fresh = self.get_food(food_id)
+        for m in fresh.get("measures", []):
+            if m.get("type") == "Recipe" and m.get("name") == "g":
+                logger.info("Added gram measure %s to recipe %s", m.get("id"), food_id)
+                return int(m.get("id") or 0)
+        raise CronometerError(f"Could not add a gram measure to recipe {food_id}")
 
     def add_serving(
         self,
@@ -915,7 +940,14 @@ class CronometerClient:
         if diary_group == 0:
             diary_group = _meal_group_for_hour(now.hour)
 
-        grams = self._to_diary_grams(food_id, grams)
+        # Recipe entries must point at the recipe's gram measure, where the
+        # server reads grams as real grams over the batch (verified live: 50 g
+        # of a 200 g / 176 kcal batch booked 44 kcal). Any other measure books
+        # nonsense: Atomic ones flip to a grams/100 rule and a dangling id
+        # books whole batches.
+        gram_measure = self._recipe_gram_measure(food_id)
+        if gram_measure is not None:
+            measure_id = gram_measure
 
         serving = {
             "order": (diary_group << 16) | 1,
@@ -1402,28 +1434,38 @@ class CronometerClient:
                 ):
                     entry["servings"] = round(grams / grams_per_unit, 4)
 
-            # Cronometer scales every entry by grams/100 against the food's
-            # stored nutrients, verified live (a grams=1 entry of a recipe
-            # booked 1/100 of the batch). Recipes store per full batch, so
-            # their stored grams are hundredths of the batch - translate that
-            # back to real grams for display, or the log reads "66.7 g" for a
-            # 337 g portion.
+            # Server rules, verified live: recipes store nutrients per full
+            # batch, and an entry scales by grams/measure.value when it points
+            # at a Recipe measure (value = units per batch; the auto "g"
+            # measure has value = batch grams, so grams are real grams there),
+            # by grams/batch_grams on measureId 0, and by grams/100 only on
+            # the Atomic path - which is the broken shape older entries have.
             total_grams = self._meal_total_grams(food)
             if total_grams and isinstance(grams, (int, float)):
-                real_grams = grams / 100.0 * total_grams
-                entry["grams_actual"] = round(real_grams, 1)
-                entry["batch_fraction"] = round(grams / 100.0, 4)
                 if (
                     measure
+                    and measure.get("type") == "Recipe"
                     and isinstance(measure.get("value"), (int, float))
-                    and measure.get("type") != "Recipe"
                     and measure["value"]
                 ):
-                    entry["servings"] = round(real_grams / measure["value"], 4)
+                    fraction = grams / measure["value"]
+                elif measure and measure.get("type") != "Recipe":
+                    fraction = grams / 100.0
                 else:
-                    entry.pop("servings", None)
-            if isinstance(grams, (int, float)):
+                    # No resolvable measure: the server books whole batches
+                    # (observed live, +372k kcal). Mirror it so the log shows
+                    # the same wrong number the diary does instead of hiding it.
+                    fraction = grams
+                real_grams = fraction * total_grams
+                entry["grams_actual"] = round(real_grams, 1)
+                entry["batch_fraction"] = round(fraction, 4)
+                entry.pop("servings", None)
+                scale = fraction
+            elif isinstance(grams, (int, float)):
                 scale = grams / 100.0
+            else:
+                scale = None
+            if scale is not None:
                 scaled: list[dict] = []
                 for n in food.get("nutrients", []):
                     if not isinstance(n, dict):
@@ -1620,7 +1662,12 @@ class CronometerClient:
         """
         serving = self.find_entry(serving_id, "Serving", day)
         if grams is not None:
-            serving["grams"] = self._to_diary_grams(serving["foodId"], grams)
+            serving["grams"] = grams
+            gram_measure = self._recipe_gram_measure(serving["foodId"])
+            if gram_measure is not None:
+                # Real grams are only read correctly against the gram measure,
+                # so an edit also repairs an entry that pointed elsewhere.
+                serving["measureId"] = gram_measure
         if time is not None:
             serving["time"] = time
         data = self._request("/api/v2/edit_serving", {"serving": serving})

@@ -215,7 +215,7 @@ SAMPLE_DIARY = {
             "type": "Serving",
             "foodId": 300,
             "measureId": 30,
-            "grams": 1.1,  # recipes store hundredths of the batch here
+            "grams": 1.1,  # Recipe measure: grams counts units of it
             "order": 65539,
         },
         {"type": "Exercise", "name": "Running", "order": 1},
@@ -299,16 +299,15 @@ def test_enrich_diary_merges_names_measures_and_scaled_nutrients(tmp_path):
     assert recipe["name"] == "Recipe Food"
     assert recipe["measure"]["measure_id"] == 30
     assert recipe["measure"]["name"] == "serving"
-    # Cronometer scales every entry by grams/100, and recipes store nutrients
-    # per full batch, so grams=1.1 means 1.1% of the batch (verified live:
-    # grams=1 on a real recipe booked 1/100 of the batch).
+    # Recipe-measure entries count units per batch (verified live): the
+    # "serving" measure has value 1, so grams=1.1 means 1.1 whole batches.
     energy = next(n for n in recipe["nutrients"] if n["id"] == 208)
-    assert energy["amount"] == 7.7939
+    assert energy["amount"] == 779.3918
     protein = next(n for n in recipe["nutrients"] if n["id"] == 203)
-    assert protein["amount"] == 0.6163
-    # Real grams are translated back from the batch weight (233.4 g "g" measure)
-    assert recipe["grams_actual"] == 2.6
-    assert recipe["batch_fraction"] == 0.011
+    assert protein["amount"] == 61.633
+    # Real grams come from the batch weight (233.4 g "g" measure)
+    assert recipe["grams_actual"] == 256.7
+    assert recipe["batch_fraction"] == 1.1
     assert "servings" not in recipe
 
     # Non-Serving entry untouched

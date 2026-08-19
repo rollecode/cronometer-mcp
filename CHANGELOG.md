@@ -1,3 +1,10 @@
+### 1.4.2: 2026-08-19
+
+* Point recipe entries at the gram measure
+* Fix recipe entries reading 100x wrong in the app
+* Add a gram measure to recipes that lack one
+* Show the diary's own number for dangling measures
+
 ### 1.4.1: 2026-08-19
 
 * Log recipe portions in real grams
