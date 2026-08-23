@@ -1,3 +1,9 @@
+### 1.4.3: 2026-08-23
+
+* Take real grams for recipe portions of any size
+* Sum recipe weight from ingredients, not Cronometer's figure
+* Note that cooking loss is not accounted for
+
 ### 1.4.2: 2026-08-19
 
 * Point recipe entries at the gram measure

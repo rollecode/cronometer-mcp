@@ -695,10 +695,14 @@ def create_recipe(
     add_custom_food you give foods and amounts, not nutrient values. Use
     search_foods to find each ingredient's food_id and measure_id first.
 
-    A "serving" measure is created as total grams divided by servings, so one
-    portion can be logged straight away with add_food_entry: use the returned
-    food_id, the serving measure_id from get_food_details, and
-    grams_per_serving.
+    Log a portion with add_food_entry in real grams: the conversion to
+    Cronometer's internal fraction-of-batch happens in this server.
+
+    total_grams is the raw ingredient weight, so it does not account for water
+    lost to cooking. A weighed portion of a finished dish that was baked or
+    simmered is denser than the recipe implies, and logging its real weight
+    will therefore understate what was eaten. For those, either log by fraction
+    of the batch, or weigh the finished dish and pass that as an adjustment.
 
     Updating with recipe_id replaces the whole ingredient list, so pass every
     ingredient, not only new ones. Recipes are removed with retire_custom_food,
