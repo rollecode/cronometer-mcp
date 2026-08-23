@@ -103,6 +103,37 @@ complete.
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
 
+### Recipes
+
+`create_recipe` takes ingredients rather than nutrient values, and Cronometer
+sums the nutrition from them itself:
+
+```json
+{
+  "name": "Overnight oats",
+  "servings": 2,
+  "ingredients": [
+    {"food_id": 450856, "grams": 118},
+    {"food_id": 465906, "grams": 80}
+  ]
+}
+```
+
+Find each ingredient's `food_id` with `search_foods` first. Log a portion with
+`add_food_entry` in real grams, whatever the batch size: Cronometer stores a
+recipe entry as a fraction of the whole batch, and this server does that
+conversion so grams always mean grams. Updating with `recipe_id` replaces the
+whole ingredient list. Recipes retire the same way custom foods do.
+
+`total_grams` is the raw ingredient weight, so cooking loss is not accounted
+for. A portion weighed off a dish that was baked or simmered is denser than the
+recipe implies, and logging its real weight will understate what was eaten.
+
+One Cronometer quirk worth knowing if you inspect a recipe directly: the "g"
+measure it creates carries a weight computed by its own rule, which on a
+1802 g recipe came out as 446. This server ignores that figure and sums the
+ingredients instead, so the conversion stays correct either way.
+
 ### Tracked and untracked nutrients
 
 Cronometer's own daily summary covers only nutrients with a target set. Anything
