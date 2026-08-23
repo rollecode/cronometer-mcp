@@ -729,6 +729,37 @@ class CronometerClient:
         logger.info("Fetched profile")
         return data
 
+    def _sum_ingredient_nutrients(
+        self, ingredients: list[dict], per_grams: float
+    ) -> list[dict]:
+        """Nutrients of an ingredient list, expressed per `per_grams` grams.
+
+        Each ingredient food stores its nutrients per 100 g, so the batch total
+        is the sum of amount * grams / 100, and dividing by the batch weight
+        gives the per-100 g figures a weight-based food needs.
+        """
+        totals: dict[int, float] = {}
+        for ing in ingredients:
+            food = self.get_food(int(ing["foodId"]))
+            grams = float(ing["grams"])
+            for n in food.get("nutrients", []):
+                nid = n.get("id")
+                amount = n.get("amount")
+                if (
+                    not isinstance(nid, int)
+                    or nid <= 0
+                    or nid in COMPUTED_NUTRIENT_IDS
+                    or not isinstance(amount, (int, float))
+                ):
+                    continue
+                totals[nid] = totals.get(nid, 0.0) + amount * grams / 100.0
+        if per_grams <= 0:
+            raise CronometerError("Recipe weight must be positive")
+        return [
+            {"id": nid, "amount": round(total / per_grams * 100.0, 6)}
+            for nid, total in sorted(totals.items())
+        ]
+
     def create_recipe(
         self,
         name: str,
@@ -737,6 +768,8 @@ class CronometerClient:
         servings: float = 1.0,
         notes: str | None = None,
         recipe_id: int = 0,
+        serving_type: str = "weight",
+        cooked_grams: float | None = None,
     ) -> dict:
         """Create a recipe: a food whose nutrients come from its ingredients.
 
@@ -775,6 +808,22 @@ class CronometerClient:
 
         if servings <= 0:
             raise CronometerError("servings must be positive")
+        if serving_type not in ("weight", "servings"):
+            raise CronometerError("serving_type must be 'weight' or 'servings'")
+        if cooked_grams is not None and cooked_grams <= 0:
+            raise CronometerError("cooked_grams must be positive")
+
+        if serving_type == "weight":
+            return self._create_weight_recipe(
+                name,
+                rows,
+                total_grams,
+                servings=servings,
+                notes=notes,
+                recipe_id=recipe_id,
+                cooked_grams=cooked_grams,
+            )
+
         per_serving = round(total_grams / servings, 1)
 
         payload = {
@@ -829,6 +878,110 @@ class CronometerClient:
             "food_id": food_id,
             "total_grams": total_grams,
             "grams_per_serving": per_serving,
+        }
+
+    def _create_weight_recipe(
+        self,
+        name: str,
+        rows: list[dict],
+        total_grams: float,
+        *,
+        servings: float,
+        notes: str | None,
+        recipe_id: int,
+        cooked_grams: float | None,
+    ) -> dict:
+        """Create a weight-based recipe: a food measured in grams.
+
+        Cronometer locks a recipe's serving type at creation, and the two types
+        behave very differently. A servings-based recipe (meal=true) keeps its
+        ingredient list, but its measures are counts rather than weights, and
+        the mobile app reads those as grams - which is why such a recipe offers
+        a 1 g serving and hides the amount field.
+
+        A weight-based food carries Weight measures whose value is grams per
+        unit, so "g" is 1 and portions log as plain grams everywhere. The
+        catch is that Cronometer will not compute one from an ingredient list:
+        with an `ingredients` key present it recomputes the nutrients itself,
+        and it derives the batch weight only from ingredients whose measure is
+        Weight-typed. Most database foods use Atomic measures, so a 1802 g
+        recipe came back weighing 446 g, which then poisons every per-100 g
+        value. So the nutrients are summed here and sent as a plain food, and
+        the ingredient list is recorded in the notes instead.
+
+        `cooked_grams` is the weight after cooking. Nutrients are per 100 g of
+        the finished dish, so a dish that lost water is denser and this is what
+        makes a portion weighed off the plate log correctly.
+        """
+        final_grams = float(cooked_grams or total_grams)
+        nutrients = self._sum_ingredient_nutrients(rows, final_grams)
+        if not nutrients:
+            raise CronometerError("Ingredients carry no nutrient data")
+
+        lines = [f"{r['grams']:g} g of food {r['foodId']}" for r in rows]
+        summary = f"Raw ingredients ({total_grams:g} g): " + "; ".join(lines)
+        if cooked_grams:
+            summary += f". Cooked weight {final_grams:g} g."
+        comments = f"{notes}\n\n{summary}" if notes else summary
+
+        measures = [
+            {"id": 0, "name": "g", "value": 1.0, "amount": 1.0, "type": "Weight"},
+            {
+                "id": 0,
+                "name": "full recipe",
+                "value": final_grams,
+                "amount": 1.0,
+                "type": "Weight",
+            },
+        ]
+        if servings and servings != 1:
+            measures.append(
+                {
+                    "id": 0,
+                    "name": "serving",
+                    "value": round(final_grams / servings, 2),
+                    "amount": 1.0,
+                    "type": "Weight",
+                }
+            )
+
+        payload = {
+            "data": {
+                "id": recipe_id,
+                "name": name,
+                "category": 12,
+                "owner": None,
+                "retired": None,
+                "source": None,
+                "defaultMeasureId": 0,
+                "comments": comments,
+                "alternateId": None,
+                "measures": measures,
+                "labelType": "AMERICAN_2016",
+                "nutrients": nutrients,
+                # Marks it as a recipe with its own serving sizes rather than a
+                # plain custom food. No `ingredients` key: sending one makes
+                # the server recompute and discard the nutrients above.
+                "properties": {"advancedServingSize": "true"},
+                "foodTags": [],
+                "meal": False,
+            },
+            "config": {"call_version": 1},
+        }
+        data = self._request("/api/v2/add_food", payload)
+        food_id = data.get("id")
+        if not food_id:
+            raise CronometerError(f"Failed to create recipe: {data}")
+        logger.info(
+            "Created weight recipe %r (id=%d, %d ingredients, %.0f g)",
+            name, food_id, len(rows), final_grams,
+        )
+        return {
+            "food_id": food_id,
+            "serving_type": "weight",
+            "total_grams": total_grams,
+            "final_grams": final_grams,
+            "grams_per_serving": round(final_grams / servings, 1) if servings else None,
         }
 
     def retire_custom_food(self, food_id: int, retired: bool = True) -> dict:

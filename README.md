@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.4.3-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.5.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -119,20 +119,27 @@ sums the nutrition from them itself:
 }
 ```
 
-Find each ingredient's `food_id` with `search_foods` first. Log a portion with
-`add_food_entry` in real grams, whatever the batch size: Cronometer stores a
-recipe entry as a fraction of the whole batch, and this server does that
-conversion so grams always mean grams. Updating with `recipe_id` replaces the
-whole ingredient list. Recipes retire the same way custom foods do.
+Find each ingredient's `food_id` with `search_foods` first. Portions log in
+plain grams with `add_food_entry`.
 
-`total_grams` is the raw ingredient weight, so cooking loss is not accounted
-for. A portion weighed off a dish that was baked or simmered is denser than the
-recipe implies, and logging its real weight will understate what was eaten.
+Add `cooked_grams` whenever the dish was baked or simmered. Nutrients are stored
+per 100 g, so a dish that lost water is denser than its raw ingredients, and
+without it a portion weighed off the plate logs too little.
 
-One Cronometer quirk worth knowing if you inspect a recipe directly: the "g"
-measure it creates carries a weight computed by its own rule, which on a
-1802 g recipe came out as 446. This server ignores that figure and sums the
-ingredients instead, so the conversion stays correct either way.
+**Cronometer locks a recipe's serving type at creation and it cannot be changed
+afterwards**, so `serving_type` matters:
+
+| | `"weight"` (default) | `"servings"` |
+| --- | --- | --- |
+| Portions | Plain grams everywhere, including the mobile app | Grams through this server; the app offers only a 1 g serving and hides the amount field |
+| Ingredients | Recorded in the recipe notes | Editable list in Cronometer |
+
+The split exists because Cronometer derives a recipe's weight only from
+ingredients whose measure is weight-typed, and most database foods use
+non-weight measures. A real 1802 g recipe came back weighing 446 g, which then
+skews every per-100 g value. A weight-based recipe therefore has its nutrients
+summed here and is stored as a plain food, which is exactly why it cannot also
+carry an editable ingredient list.
 
 ### Tracked and untracked nutrients
 

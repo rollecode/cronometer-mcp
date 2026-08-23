@@ -1,3 +1,10 @@
+### 1.5.0: 2026-08-23
+
+* Create weight-based recipes by default
+* Log recipe portions as grams in the mobile app
+* Add `cooked_grams` for dishes that lost water
+* Add `serving_type` to keep the old behaviour
+
 ### 1.4.3: 2026-08-23
 
 * Take real grams for recipe portions of any size

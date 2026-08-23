@@ -688,6 +688,8 @@ def create_recipe(
     servings: float = 1.0,
     notes: str | None = None,
     recipe_id: int | None = None,
+    serving_type: str = "weight",
+    cooked_grams: float | None = None,
 ) -> str:
     """Create a recipe from ingredients, or update one by passing recipe_id.
 
@@ -695,14 +697,22 @@ def create_recipe(
     add_custom_food you give foods and amounts, not nutrient values. Use
     search_foods to find each ingredient's food_id and measure_id first.
 
-    Log a portion with add_food_entry in real grams: the conversion to
-    Cronometer's internal fraction-of-batch happens in this server.
+    Cronometer locks a recipe's serving type when it is created and it cannot
+    be changed afterwards, so choose deliberately:
 
-    total_grams is the raw ingredient weight, so it does not account for water
-    lost to cooking. A weighed portion of a finished dish that was baked or
-    simmered is denser than the recipe implies, and logging its real weight
-    will therefore understate what was eaten. For those, either log by fraction
-    of the batch, or weigh the finished dish and pass that as an adjustment.
+    - "weight" (default) measures the recipe in grams. Portions log as plain
+      grams in every client, including the mobile app's own entry screen. The
+      ingredient list is recorded in the notes rather than as editable
+      ingredients, because Cronometer will not compute a correct weight from
+      ingredients that use non-weight measures.
+    - "servings" keeps an editable ingredient list in Cronometer, but the
+      mobile app then offers only a 1 g serving and hides the amount field.
+      Logging through this server is still correct in grams.
+
+    cooked_grams is the weight of the finished dish. Give it whenever the food
+    was baked or simmered: nutrients are stored per 100 g, and a dish that lost
+    water is denser than its raw ingredients, so without it a portion weighed
+    off the plate logs too little.
 
     Updating with recipe_id replaces the whole ingredient list, so pass every
     ingredient, not only new ones. Recipes are removed with retire_custom_food,
@@ -715,6 +725,8 @@ def create_recipe(
         servings: How many portions the batch makes.
         notes: Free-text note stored on the recipe.
         recipe_id: Existing recipe to update in place.
+        serving_type: "weight" or "servings". Cannot be changed later.
+        cooked_grams: Weight of the finished dish, if it lost water in cooking.
     """
     try:
         client = _get_client()
@@ -724,6 +736,8 @@ def create_recipe(
             servings=servings,
             notes=notes,
             recipe_id=recipe_id or 0,
+            serving_type=serving_type,
+            cooked_grams=cooked_grams,
         )
         food = client.get_food(result["food_id"])
         measures = [
