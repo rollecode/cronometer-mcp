@@ -12,7 +12,7 @@ import json
 import logging
 import math
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -729,6 +729,29 @@ class CronometerClient:
         logger.info("Fetched profile")
         return data
 
+    @staticmethod
+    def _normalise_ingredients(ingredients: list[dict]) -> tuple[list[dict], float]:
+        """Ingredient rows in the API's shape, plus their total weight."""
+        rows = []
+        total = 0.0
+        for ing in ingredients:
+            food_id = ing.get("food_id") or ing.get("foodId")
+            grams = ing.get("grams")
+            if not food_id or not grams:
+                raise CronometerError(
+                    f"Each ingredient needs food_id and grams, got: {ing}"
+                )
+            rows.append(
+                {
+                    "foodId": int(food_id),
+                    "measureId": int(ing.get("measure_id") or ing.get("measureId") or 0),
+                    "grams": float(grams),
+                    "amount": 1.0,
+                }
+            )
+            total += float(grams)
+        return rows, total
+
     def _sum_ingredient_nutrients(
         self, ingredients: list[dict], per_grams: float
     ) -> list[dict]:
@@ -787,24 +810,7 @@ class CronometerClient:
         """
         if not ingredients:
             raise CronometerError("A recipe needs at least one ingredient")
-        rows = []
-        total_grams = 0.0
-        for ing in ingredients:
-            food_id = ing.get("food_id") or ing.get("foodId")
-            grams = ing.get("grams")
-            if not food_id or not grams:
-                raise CronometerError(
-                    "Each ingredient needs food_id and grams, got: " f"{ing}"
-                )
-            rows.append(
-                {
-                    "foodId": int(food_id),
-                    "measureId": int(ing.get("measure_id") or ing.get("measureId") or 0),
-                    "grams": float(grams),
-                    "amount": 1.0,
-                }
-            )
-            total_grams += float(grams)
+        rows, total_grams = self._normalise_ingredients(ingredients)
 
         if servings <= 0:
             raise CronometerError("servings must be positive")
@@ -983,6 +989,276 @@ class CronometerClient:
             "final_grams": final_grams,
             "grams_per_serving": round(final_grams / servings, 1) if servings else None,
         }
+
+    def list_own_foods(
+        self, query: str = "", include_retired: bool = False
+    ) -> list[dict]:
+        """Every food and recipe the account owns.
+
+        Uses the search endpoint's CUSTOM tab, which with an empty query lists
+        the whole personal library rather than searching the database. This is
+        the only enumeration Cronometer offers: there is no list-my-foods call.
+
+        Retired foods are absent from the tab entirely, so include_retired
+        cannot recover them here; it is honoured only in that the flag is
+        reported per row for foods that are returned.
+        """
+        payload = {
+            "query": query,
+            "tab": "CUSTOM",
+            "sources": ["All"],
+            "config": {"newSearch": True, "newSpellcheck": True, "call_version": 1},
+        }
+        rows = self._request("/api/v2/find_food", payload).get("foods", [])
+        ids = [r.get("id") for r in rows if isinstance(r.get("id"), int)]
+        detail = {f.get("id"): f for f in self.get_foods(ids)} if ids else {}
+        out = []
+        for row in rows:
+            food = detail.get(row.get("id"), {})
+            retired = bool(food.get("retired"))
+            if retired and not include_retired:
+                continue
+            is_recipe = bool(food.get("meal")) or (
+                str(food.get("properties", {}).get("advancedServingSize", "")).lower()
+                == "true"
+            )
+            out.append(
+                {
+                    "food_id": row.get("id"),
+                    "name": row.get("name"),
+                    "measure_id": row.get("measureId"),
+                    "measure_name": row.get("measureDisplayName"),
+                    "is_recipe": is_recipe,
+                    "serving_type": (
+                        None
+                        if not is_recipe
+                        else ("servings" if food.get("meal") else "weight")
+                    ),
+                    "retired": retired,
+                    "notes": food.get("comments"),
+                }
+            )
+        logger.info("Listed %d own foods (query=%r)", len(out), query)
+        return out
+
+    def find_entries_by_food(
+        self, food_id: int, start: date | None = None, end: date | None = None
+    ) -> list[dict]:
+        """Every diary entry referencing a food, across a date range.
+
+        Cronometer has no way to search entries by food, so this walks the
+        diary day by day. That is one request per day, which is why the range
+        defaults to the last 30 days rather than all time.
+        """
+        end = end or self.today()
+        start = start or (end - timedelta(days=30))
+        if start > end:
+            raise CronometerError("start must not be after end")
+        found = []
+        day = start
+        while day <= end:
+            for entry in self.get_diary(day).get("diary", []):
+                if entry.get("type") == "Serving" and entry.get("foodId") == food_id:
+                    found.append(
+                        {
+                            "serving_id": entry.get("servingId"),
+                            "date": self._format_day(day),
+                            "time": entry.get("time"),
+                            "grams": entry.get("grams"),
+                            "measure_id": entry.get("measureId"),
+                            "diary_group": (entry.get("order") or 0) >> 16,
+                        }
+                    )
+            day += timedelta(days=1)
+        logger.info(
+            "Found %d entries for food %s between %s and %s",
+            len(found), food_id, self._format_day(start), self._format_day(end),
+        )
+        return found
+
+    def update_custom_food(
+        self,
+        food_id: int,
+        *,
+        name: str | None = None,
+        notes: str | None = None,
+        nutrients: dict[str, float] | None = None,
+        measures: list[dict] | None = None,
+    ) -> dict:
+        """Edit a custom food in place, leaving diary entries attached.
+
+        Patch semantics: only what is passed changes. Entries keep pointing at
+        the same food_id and their nutrition follows the edit, which is what
+        editing a food is for.
+
+        Nutrients given are merged into the existing profile rather than
+        replacing it, so fixing one wrong value does not blank the other 93.
+        Measures are matched by measure_id; name and grams are each optional.
+        """
+        food = self.get_food(food_id)
+        if food.get("owner") != self.user_id:
+            raise CronometerError(
+                f"Food {food_id} is not yours to edit; only custom foods can be changed"
+            )
+        if food.get("meal"):
+            raise CronometerError(
+                f"Food {food_id} is a servings-based recipe; use update_recipe"
+            )
+
+        if name is not None:
+            food["name"] = name
+        if notes is not None:
+            food["comments"] = notes
+
+        if nutrients:
+            resolved = {n["id"]: n["amount"] for n in self.resolve_nutrients(nutrients)}
+            existing = {
+                n["id"]: n for n in food.get("nutrients", []) if isinstance(n, dict)
+            }
+            for nid, amount in resolved.items():
+                if nid in existing:
+                    existing[nid]["amount"] = amount
+                else:
+                    existing[nid] = {"id": nid, "amount": amount}
+            food["nutrients"] = list(existing.values())
+
+        if measures:
+            by_id = {m.get("id"): m for m in food.get("measures", [])}
+            for patch in measures:
+                mid = patch.get("measure_id") or patch.get("id")
+                target = by_id.get(mid)
+                if target is None:
+                    raise CronometerError(
+                        f"Food {food_id} has no measure {mid}. "
+                        f"Known: {sorted(k for k in by_id if k is not None)}"
+                    )
+                if patch.get("name") is not None:
+                    target["name"] = patch["name"]
+                grams = patch.get("grams", patch.get("value"))
+                if grams is not None:
+                    target["value"] = float(grams)
+
+        self._request(
+            "/api/v2/add_food", {"data": food, "config": {"call_version": 1}}
+        )
+        logger.info("Updated custom food %s", food_id)
+        fresh = self.get_food(food_id)
+        return {
+            "food_id": food_id,
+            "name": fresh.get("name"),
+            "notes": fresh.get("comments"),
+            "measures": [
+                {"measure_id": m.get("id"), "name": m.get("name"), "grams": m.get("value")}
+                for m in fresh.get("measures", [])
+            ],
+            "nutrient_count": len(fresh.get("nutrients", [])),
+        }
+
+    def update_recipe(
+        self,
+        food_id: int,
+        *,
+        name: str | None = None,
+        notes: str | None = None,
+        ingredients: list[dict] | None = None,
+        cooked_grams: float | None = None,
+    ) -> dict:
+        """Edit a recipe in place, keeping its serving type.
+
+        Cronometer locks serving type at creation, so this never changes it.
+        Changing ingredients or cooked_grams recomputes the nutrition; for a
+        weight-based recipe that means resumming here, since its nutrients are
+        stored rather than derived.
+        """
+        food = self.get_food(food_id)
+        if food.get("owner") != self.user_id:
+            raise CronometerError(f"Recipe {food_id} is not yours to edit")
+        is_weight = str(
+            food.get("properties", {}).get("advancedServingSize", "")
+        ).lower() == "true"
+        if not food.get("meal") and not is_weight:
+            raise CronometerError(
+                f"Food {food_id} is not a recipe; use update_custom_food"
+            )
+
+        if ingredients is None and cooked_grams is None:
+            # Name and notes only: patch in place whichever type it is.
+            return self.update_custom_food(food_id, name=name, notes=notes) if is_weight \
+                else self._patch_meal_fields(food, name=name, notes=notes)
+
+        if ingredients is None:
+            raise CronometerError(
+                "Changing cooked_grams needs the ingredients too, because the "
+                "nutrition is recomputed from them"
+            )
+
+        rows, total = self._normalise_ingredients(ingredients)
+        servings = self._recipe_servings(food, total)
+        if is_weight:
+            return self._create_weight_recipe(
+                name or food.get("name"),
+                rows,
+                total,
+                servings=servings,
+                notes=notes if notes is not None else None,
+                recipe_id=food_id,
+                cooked_grams=cooked_grams,
+            )
+        if cooked_grams is not None:
+            raise CronometerError(
+                "cooked_grams applies to weight-based recipes only; this one is "
+                "servings-based, where Cronometer derives the weight itself"
+            )
+        return self.create_recipe(
+            name or food.get("name"),
+            ingredients,
+            servings=servings,
+            notes=notes,
+            recipe_id=food_id,
+            serving_type="servings",
+        )
+
+    def _patch_meal_fields(
+        self, food: dict, *, name: str | None, notes: str | None
+    ) -> dict:
+        """Rename or re-note a servings-based recipe without touching its parts."""
+        if name is not None:
+            food["name"] = name
+        if notes is not None:
+            food["comments"] = notes
+        self._request("/api/v2/add_food", {"data": food, "config": {"call_version": 1}})
+        fresh = self.get_food(food["id"])
+        return {
+            "food_id": food["id"],
+            "name": fresh.get("name"),
+            "notes": fresh.get("comments"),
+            "serving_type": "servings",
+        }
+
+    @staticmethod
+    def _recipe_servings(food: dict, total_grams: float) -> float:
+        """Recover how many portions a recipe was defined as making.
+
+        Derived from the recipe's own measures, never from a new ingredient
+        total: on a servings-based recipe the serving measure already counts
+        portions, and on a weight-based one the ratio of its full-recipe weight
+        to its serving weight gives the same number. Measuring against a new
+        total would silently change the portion count whenever the ingredients
+        are edited.
+        """
+        serving = next(
+            (m for m in food.get("measures", []) if m.get("name") == "serving"), None
+        )
+        if not serving or not serving.get("value"):
+            return 1.0
+        value = float(serving["value"])
+        if serving.get("type") == "Recipe":
+            return value
+        full = next(
+            (m for m in food.get("measures", []) if m.get("name") == "full recipe"), None
+        )
+        basis = float(full["value"]) if full and full.get("value") else total_grams
+        return max(1.0, round(basis / value, 3)) if value > 0 else 1.0
 
     def retire_custom_food(self, food_id: int, retired: bool = True) -> dict:
         """Retire a custom food, which is how Cronometer removes one.

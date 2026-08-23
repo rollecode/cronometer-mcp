@@ -1,3 +1,11 @@
+### 1.6.0: 2026-08-23
+
+* Edit custom foods and recipes in place
+* List your own foods and recipes
+* Find every diary entry for a food
+* Merge nutrient edits instead of replacing
+* Keep the portion count when ingredients change
+
 ### 1.5.0: 2026-08-23
 
 * Create weight-based recipes by default

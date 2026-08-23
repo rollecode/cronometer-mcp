@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.6.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -48,6 +48,9 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `get_recent_foods` | Recently logged foods and how often each was logged |
 | `get_streak` | Current and record run of fully logged days |
 | `get_profile` | Account profile: birthdate, gender, timezone, language |
+| `list_custom_foods` | Your whole custom library, no database results mixed in |
+| `list_recipes` | Your recipes, each with its serving type |
+| `find_entries_by_food` | Every diary entry referencing a food, with dates and amounts |
 
 ### Writing
 
@@ -58,6 +61,8 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `remove_food_entry` | Delete food entries |
 | `add_custom_food` | Create your own food, with up to all 94 nutrients |
 | `create_recipe` | Create or update a recipe from ingredients |
+| `update_custom_food` | Edit a custom food in place, keeping its diary entries |
+| `update_recipe` | Edit a recipe in place, keeping its serving type |
 | `retire_custom_food` | Retire a custom food, or bring one back |
 | `add_note` | Write a note on a day |
 | `edit_note` | Rewrite a note |
@@ -178,6 +183,22 @@ Cronometer's endpoint replaces the whole row rather than patching it, so this
 reads the nutrient's current settings and merges your change into them. Turning
 on visibility therefore keeps whatever target was already set, and each call
 reports the previous values alongside the new ones.
+
+### Editing and auditing your library
+
+`update_custom_food` and `update_recipe` patch in place: only what you pass
+changes, and entries already logged stay attached to the same food while their
+nutrition follows the edit. So a typo, a stripped `ä`, or one wrong nutrient is
+fixed without recreating the food and re-logging every entry. Nutrients merge
+into the existing profile rather than replacing it.
+
+`list_custom_foods` returns the whole library with nothing from the database
+mixed in, which is what makes an audit possible. Before retiring a food, run
+`find_entries_by_food` to see where it was logged, or its entries are left
+pointing at something retired.
+
+Serving type stays fixed: `update_recipe` will not change it, because
+Cronometer locks it at creation.
 
 ## How it fits together
 

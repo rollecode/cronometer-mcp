@@ -756,6 +756,155 @@ def create_recipe(
         return _err(e)
 
 
+@mcp.tool(annotations=_READ)
+def list_custom_foods(query: str = "", include_retired: bool = False) -> str:
+    """Every custom food and recipe you own, with no database results mixed in.
+
+    Leave query empty for the whole library. This is the way to audit it: to
+    find, say, every food whose name lost its Finnish characters, list them all
+    and read the names, then fix each with update_custom_food.
+
+    Retired foods are hidden by Cronometer's own library listing, so
+    include_retired cannot bring them back; it only affects rows already
+    returned.
+
+    Args:
+        query: Narrow the list by name. Empty lists everything.
+        include_retired: Keep retired foods in the result when they appear.
+    """
+    try:
+        foods = _get_client().list_own_foods(query, include_retired)
+        return _ok({"count": len(foods), "foods": foods})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_READ)
+def list_recipes(include_retired: bool = False) -> str:
+    """Every recipe you own, with its serving type.
+
+    serving_type says which kind each one is: "weight" logs in grams
+    everywhere, "servings" keeps an editable ingredient list but shows a 1 g
+    serving in the mobile app. It is fixed at creation and cannot be changed.
+
+    Args:
+        include_retired: Keep retired recipes in the result when they appear.
+    """
+    try:
+        foods = [
+            f for f in _get_client().list_own_foods("", include_retired)
+            if f["is_recipe"]
+        ]
+        return _ok({"count": len(foods), "recipes": foods})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_READ)
+def find_entries_by_food(
+    food_id: int, start_date: str | None = None, end_date: str | None = None
+) -> str:
+    """Every diary entry that references a food, with dates and amounts.
+
+    Use before replacing or retiring a food, so its entries can be moved rather
+    than left pointing at something retired.
+
+    Cronometer cannot search entries by food, so this reads the diary one day
+    at a time and the range costs a request per day. It defaults to the last 30
+    days; widen it deliberately.
+
+    Args:
+        food_id: The food to look for.
+        start_date: First day as YYYY-MM-DD (defaults to 30 days back).
+        end_date: Last day as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        client = _get_client()
+        entries = client.find_entries_by_food(
+            food_id, _parse_date(start_date), _parse_date(end_date)
+        )
+        return _ok(
+            {
+                "food_id": food_id,
+                "count": len(entries),
+                "total_grams": round(sum(e["grams"] or 0 for e in entries), 1),
+                "entries": entries,
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def update_custom_food(
+    food_id: int,
+    name: str | None = None,
+    notes: str | None = None,
+    nutrients: dict[str, float] | None = None,
+    measures: list[dict] | None = None,
+) -> str:
+    """Edit one of your custom foods in place, keeping its diary entries.
+
+    Only what you pass changes. Entries already logged stay attached to this
+    same food and their nutrition follows the edit, so a typo or a wrong
+    nutrient can be fixed without re-logging anything.
+
+    Nutrients are merged into the existing profile, so correcting one value
+    leaves the rest alone. Call list_nutrients for the accepted names.
+
+    Args:
+        food_id: The custom food to edit.
+        name: New name.
+        notes: New note text.
+        nutrients: Nutrient name to amount per serving, merged in.
+        measures: [{"measure_id": int, "name": str, "grams": float}] to fix a
+            wrongly weighted measure. name and grams are each optional.
+    """
+    try:
+        result = _get_client().update_custom_food(
+            food_id, name=name, notes=notes, nutrients=nutrients, measures=measures
+        )
+        return _ok(result)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_WRITE)
+def update_recipe(
+    food_id: int,
+    name: str | None = None,
+    notes: str | None = None,
+    ingredients: list[dict] | None = None,
+    cooked_grams: float | None = None,
+) -> str:
+    """Edit one of your recipes in place, keeping its diary entries.
+
+    Only what you pass changes, and the serving type never does: Cronometer
+    fixes it at creation. Passing ingredients replaces the whole list, so send
+    every ingredient rather than only the new ones.
+
+    Args:
+        food_id: The recipe to edit.
+        name: New name.
+        notes: New note text.
+        ingredients: Full replacement list of
+            {"food_id": int, "grams": float, "measure_id": int (optional)}.
+        cooked_grams: New finished weight. Weight-based recipes only, and it
+            needs the ingredients too, since the nutrition is recomputed.
+    """
+    try:
+        result = _get_client().update_recipe(
+            food_id,
+            name=name,
+            notes=notes,
+            ingredients=ingredients,
+            cooked_grams=cooked_grams,
+        )
+        return _ok(result)
+    except Exception as e:
+        return _err(e)
+
+
 @mcp.tool(annotations=_DESTRUCTIVE)
 def retire_custom_food(food_id: int, retired: bool = True) -> str:
     """Retire a custom food so it stops being offered for new entries.
