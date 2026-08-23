@@ -388,3 +388,43 @@ def test_save_food_strips_server_feed_fields(tmp_path):
                       keep_measures=False)
 
     assert "messages" not in sent["data"]
+
+
+# ---------------------------------------------------------------------------
+# Label units (energy_kj / salt_g)
+# ---------------------------------------------------------------------------
+
+
+def test_label_units_convert_to_catalog_units():
+    """kJ becomes kcal and salt becomes sodium, wherever nutrients are accepted."""
+    out = CronometerClient._apply_label_units({"energy_kj": 1000, "salt_g": 2.0})
+
+    assert round(out["energy"], 2) == 239.01
+    assert round(out["sodium"], 1) == 786.8
+    assert "energy_kj" not in out and "salt_g" not in out
+
+
+def test_label_units_reject_a_conflicting_pair():
+    """Passing both a convenience and its nutrient is an error, not a silent pick."""
+    with pytest.raises(CronometerError):
+        CronometerClient._apply_label_units({"energy_kj": 500, "energy": 100})
+    with pytest.raises(CronometerError):
+        CronometerClient._apply_label_units({"salt_g": 1, "sodium": 400})
+
+
+def test_label_units_run_inside_resolve_nutrients(tmp_path):
+    """Creating and editing share one resolver, so both accept the same keys.
+
+    They were separate once, and a food written with energy_kj could then not
+    be edited in that field at all.
+    """
+    client = CronometerClient(session_path=tmp_path / "session.json")
+    client.nutrient_index = lambda: {  # type: ignore[method-assign]
+        "energy": {"id": 208, "name": "Energy", "unit": "kcal", "category": "General"}
+    }
+
+    resolved = client.resolve_nutrients({"energy_kj": 418.4})
+
+    assert len(resolved) == 1
+    assert resolved[0]["id"] == 208
+    assert round(resolved[0]["amount"], 6) == 100.0

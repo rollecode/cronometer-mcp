@@ -1,3 +1,7 @@
+### 1.6.2: 2026-08-23
+
+* Accept `energy_kj` and `salt_g` when editing a food
+
 ### 1.6.1: 2026-08-23
 
 * Never drop a measure when editing a food

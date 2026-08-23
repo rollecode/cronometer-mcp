@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.6.1-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.6.2-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -107,6 +107,8 @@ complete.
 
 Two conveniences the food label has and the catalog does not: `energy_kj` is
 converted to calories, and `salt_g` to sodium. Pass one or the other, not both.
+`update_custom_food` takes the same keys, so a food written in label units stays
+editable in them.
 
 ### Recipes
 

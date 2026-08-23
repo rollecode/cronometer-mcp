@@ -630,22 +630,7 @@ class CronometerClient:
 
         Returns {"food_id": int, "measure_id": int | None}.
         """
-        values = dict(nutrients)
-
-        energy_kj = values.pop("energy_kj", None)
-        if energy_kj is not None:
-            if "energy" in values or "calories" in values:
-                raise CronometerError("Pass either energy_kj or energy, not both")
-            values["energy"] = float(energy_kj) / 4.184
-
-        salt_g = values.pop("salt_g", None)
-        if salt_g is not None:
-            if "sodium" in values:
-                raise CronometerError("Pass either salt_g or sodium, not both")
-            # Salt is 39.34% sodium by mass (Na 22.99 of NaCl 58.44).
-            values["sodium"] = float(salt_g) * 393.4
-
-        resolved = self.resolve_nutrients(values)
+        resolved = self.resolve_nutrients(nutrients)
         if not resolved:
             raise CronometerError("A custom food needs at least one nutrient")
 
@@ -1701,6 +1686,31 @@ class CronometerClient:
             }
         return index
 
+    @staticmethod
+    def _apply_label_units(values: dict[str, float]) -> dict[str, float]:
+        """Convert the units a food label uses into the catalog's own.
+
+        Labels give energy in kilojoules and sodium as salt; the catalog has
+        neither. Passing both a convenience and the nutrient it maps to is an
+        error rather than a silent pick, since the two would disagree.
+        """
+        out = dict(values)
+
+        energy_kj = out.pop("energy_kj", None)
+        if energy_kj is not None:
+            if "energy" in out or "calories" in out:
+                raise CronometerError("Pass either energy_kj or energy, not both")
+            out["energy"] = float(energy_kj) / 4.184
+
+        salt_g = out.pop("salt_g", None)
+        if salt_g is not None:
+            if "sodium" in out:
+                raise CronometerError("Pass either salt_g or sodium, not both")
+            # Salt is 39.34% sodium by mass (Na 22.99 of NaCl 58.44).
+            out["sodium"] = float(salt_g) * 393.4
+
+        return out
+
     def resolve_nutrients(self, values: dict[str, float]) -> list[dict]:
         """Map user-supplied nutrient names to the catalog's ids.
 
@@ -1709,7 +1719,12 @@ class CronometerClient:
         Only the names given are returned, so an unset nutrient stays unset
         rather than being written as a zero, which Cronometer treats as the
         active claim that the food contains none of it.
+
+        The two label conveniences are handled here rather than in any one
+        caller, so creating and editing a food always accept the same keys. A
+        food written with `energy_kj` was otherwise uneditable in that field.
         """
+        values = self._apply_label_units(values)
         index = self.nutrient_index()
         resolved: list[dict] = []
         unknown: list[str] = []

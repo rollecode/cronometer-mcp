@@ -1,6 +1,6 @@
 {
   "name": "cronometer-mcp",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Cronometer MCP server with OAuth 2.1, for Claude.ai custom connectors and Claude Code",
   "main": "auth-server.js",
   "scripts": {
