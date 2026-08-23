@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.6.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.6.1-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -199,6 +199,12 @@ pointing at something retired.
 
 Serving type stays fixed: `update_recipe` will not change it, because
 Cronometer locks it at creation.
+
+Neither tool can drop a measure. A measure id is what diary entries point at,
+and Cronometer renders an entry whose measure vanished with the amount in the
+calorie column and no timestamp, so a write that would lose one is refused
+rather than repaired afterwards. Passing `measures` patches the ids you name
+and leaves the rest alone.
 
 ## How it fits together
 

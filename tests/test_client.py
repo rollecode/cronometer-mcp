@@ -346,3 +346,45 @@ def test_enrich_diary_no_servings_skips_lookup(tmp_path):
     )
     assert calls["n"] == 0
     assert out["diary"] == [{"type": "Exercise", "name": "Running"}]
+
+
+# ---------------------------------------------------------------------------
+# Measure preservation (a dropped measure orphans diary entries)
+# ---------------------------------------------------------------------------
+
+
+def test_save_food_refuses_to_drop_a_measure(tmp_path):
+    """Writing a food without one of its measures must raise, not silently lose it.
+
+    A measure id is what diary entries point at. Cronometer renders an entry
+    whose measure vanished with the amount in the calorie column and no
+    timestamp, so the write is refused rather than repaired afterwards.
+    """
+    client, _ = make_client(tmp_path, [{"result": "SUCCESS", "id": 1}])
+    stored = {
+        "id": 5,
+        "name": "Water",
+        "measures": [{"id": 10, "name": "ml"}, {"id": 11, "name": "glass"}],
+    }
+    client.get_food = lambda food_id: stored  # type: ignore[method-assign]
+
+    shrunk = {**stored, "measures": [{"id": 10, "name": "ml"}]}
+    with pytest.raises(CronometerError, match="would be dropped"):
+        client._save_food(shrunk)
+
+
+def test_save_food_strips_server_feed_fields(tmp_path):
+    """`messages` is a server feed, not food data, and is not posted back."""
+    client, state = make_client(tmp_path, [{"result": "SUCCESS", "id": 1}])
+    sent = {}
+
+    def capture(endpoint, json=None):
+        sent.update(json or {})
+        state["post"] += 1
+        return FakeResp({"result": "SUCCESS", "id": 1})
+
+    client._http.post = capture  # type: ignore[method-assign]
+    client._save_food({"id": 0, "name": "x", "messages": [1, 2], "measures": []},
+                      keep_measures=False)
+
+    assert "messages" not in sent["data"]

@@ -729,6 +729,54 @@ class CronometerClient:
         logger.info("Fetched profile")
         return data
 
+    # Fields get_food returns that are a server-side feed rather than food
+    # data. Posting them back is at best noise on a write.
+    _NON_FOOD_FIELDS: ClassVar[tuple[str, ...]] = ("messages",)
+
+    def _save_food(self, food: dict, *, keep_measures: bool = True) -> dict:
+        """Write a food back, refusing to lose any measure it already had.
+
+        A measure id is what diary entries point at. Dropping one leaves those
+        entries referencing nothing, and Cronometer renders such an entry
+        wrongly rather than hiding it - the amount lands in the calorie column
+        and the timestamp disappears. Recovering from that means finding and
+        rewriting every affected entry, so this refuses the write instead.
+        """
+        food = {k: v for k, v in food.items() if k not in self._NON_FOOD_FIELDS}
+        food_id = food.get("id")
+        before = set()
+        if keep_measures and food_id:
+            before = {
+                m.get("id")
+                for m in self.get_food(int(food_id)).get("measures", [])
+                if m.get("id")
+            }
+            sending = {m.get("id") for m in food.get("measures", []) if m.get("id")}
+            missing = before - sending
+            if missing:
+                raise CronometerError(
+                    f"Refusing to write food {food_id}: measures {sorted(missing)} "
+                    "would be dropped, and diary entries may point at them"
+                )
+
+        data = self._request(
+            "/api/v2/add_food", {"data": food, "config": {"call_version": 1}}
+        )
+        if before:
+            after = {
+                m.get("id")
+                for m in self.get_food(int(food_id)).get("measures", [])
+                if m.get("id")
+            }
+            lost = before - after
+            if lost:
+                raise CronometerError(
+                    f"Cronometer dropped measures {sorted(lost)} from food "
+                    f"{food_id} despite them being sent. Entries referencing "
+                    "them need repointing with find_entries_by_food."
+                )
+        return data
+
     @staticmethod
     def _normalise_ingredients(ingredients: list[dict]) -> tuple[list[dict], float]:
         """Ingredient rows in the API's shape, plus their total weight."""
@@ -930,26 +978,38 @@ class CronometerClient:
             summary += f". Cooked weight {final_grams:g} g."
         comments = f"{notes}\n\n{summary}" if notes else summary
 
-        measures = [
-            {"id": 0, "name": "g", "value": 1.0, "amount": 1.0, "type": "Weight"},
-            {
-                "id": 0,
-                "name": "full recipe",
-                "value": final_grams,
+        # Reuse the existing measure ids when updating. Rebuilding them from
+        # scratch would give the recipe new ids, and every diary entry already
+        # logged against the old ones would point at nothing.
+        existing = {}
+        if recipe_id:
+            existing = {
+                m.get("name"): m.get("id")
+                for m in self.get_food(recipe_id).get("measures", [])
+                if m.get("id")
+            }
+
+        def measure(name: str, value: float) -> dict:
+            return {
+                "id": existing.get(name, 0),
+                "name": name,
+                "value": value,
                 "amount": 1.0,
                 "type": "Weight",
-            },
-        ]
+            }
+
+        measures = [measure("g", 1.0), measure("full recipe", final_grams)]
         if servings and servings != 1:
             measures.append(
-                {
-                    "id": 0,
-                    "name": "serving",
-                    "value": round(final_grams / servings, 2),
-                    "amount": 1.0,
-                    "type": "Weight",
-                }
+                measure("serving", round(final_grams / servings, 2))
             )
+        for extra_name, mid in existing.items():
+            if extra_name not in {m["name"] for m in measures}:
+                # A measure the user added by hand. Keep it, weight unchanged.
+                kept = next(
+                    m for m in self.get_food(recipe_id)["measures"] if m.get("id") == mid
+                )
+                measures.append(kept)
 
         payload = {
             "data": {
@@ -974,7 +1034,7 @@ class CronometerClient:
             },
             "config": {"call_version": 1},
         }
-        data = self._request("/api/v2/add_food", payload)
+        data = self._save_food(payload["data"], keep_measures=bool(recipe_id))
         food_id = data.get("id")
         if not food_id:
             raise CronometerError(f"Failed to create recipe: {data}")
@@ -1138,9 +1198,7 @@ class CronometerClient:
                 if grams is not None:
                     target["value"] = float(grams)
 
-        self._request(
-            "/api/v2/add_food", {"data": food, "config": {"call_version": 1}}
-        )
+        self._save_food(food)
         logger.info("Updated custom food %s", food_id)
         fresh = self.get_food(food_id)
         return {
@@ -1226,7 +1284,7 @@ class CronometerClient:
             food["name"] = name
         if notes is not None:
             food["comments"] = notes
-        self._request("/api/v2/add_food", {"data": food, "config": {"call_version": 1}})
+        self._save_food(food)
         fresh = self.get_food(food["id"])
         return {
             "food_id": food["id"],

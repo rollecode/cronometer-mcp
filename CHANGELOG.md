@@ -1,3 +1,10 @@
+### 1.6.1: 2026-08-23
+
+* Never drop a measure when editing a food
+* Keep measure ids when a recipe is updated
+* Refuse writes that would orphan diary entries
+* Stop posting the server message feed back
+
 ### 1.6.0: 2026-08-23
 
 * Edit custom foods and recipes in place
