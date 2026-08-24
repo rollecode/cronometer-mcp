@@ -56,7 +56,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 
 | Tool | What it does |
 | --- | --- |
-| `add_food_entry` | Add a food to a meal |
+| `add_food_entry` | Add a food to a meal, at a given time of day |
 | `edit_food_entry` | Change how much you ate, or when |
 | `remove_food_entry` | Delete food entries |
 | `add_custom_food` | Create your own food, with up to all 94 nutrients |

@@ -13,6 +13,7 @@ import logging
 import math
 import os
 from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from pathlib import Path
 from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -1384,6 +1385,7 @@ class CronometerClient:
         translation_id: int = 0,
         day: date | None = None,
         diary_group: int = 0,
+        time: dtime | None = None,
     ) -> dict:
         """Log a food serving to the diary.
 
@@ -1398,15 +1400,18 @@ class CronometerClient:
             day: Date to log to. Defaults to today.
             diary_group: Meal group. 0 = auto (based on time of day),
                          1 = Breakfast, 2 = Lunch, 3 = Dinner, 4 = Snacks.
+            time: Time of day to stamp the entry with. Defaults to now in the
+                  account's timezone. An auto diary_group follows this hour,
+                  so a meal logged after the fact lands in its own slot.
 
         Returns the serving confirmation dict from the API.
         """
-        now = self.now()
+        stamp = time or self.now().timetz()
         day_str = self._format_day(day)
-        time_str = f"{now.hour}:{now.minute}:{now.second}"
+        time_str = f"{stamp.hour}:{stamp.minute}:{stamp.second}"
 
         if diary_group == 0:
-            diary_group = _meal_group_for_hour(now.hour)
+            diary_group = _meal_group_for_hour(stamp.hour)
 
         # Recipes need real grams converted to a fraction of the batch, since
         # the server books grams / measure.value of the whole thing. Doing it

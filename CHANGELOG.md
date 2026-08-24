@@ -1,3 +1,9 @@
+### 1.7.0: 2026-08-24
+
+* Log a food entry at a given time of day
+* Auto meal group follows that time
+* Accept `HH:MM` when editing an entry time
+
 ### 1.6.2: 2026-08-23
 
 * Accept `energy_kj` and `salt_g` when editing a food

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta
+from datetime import time as dtime
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Icon
@@ -75,6 +76,18 @@ def _parse_date(d: str | None) -> date | None:
     if d is None:
         return None
     return date.fromisoformat(d)
+
+
+def _parse_time(t: str | None) -> dtime | None:
+    """Parse a diary timestamp given as HH:MM or HH:MM:SS."""
+    if t is None:
+        return None
+    try:
+        return dtime.fromisoformat(t)
+    except ValueError:
+        raise ValueError(
+            f"Invalid time '{t}'. Use HH:MM or HH:MM:SS, e.g. 10:15."
+        ) from None
 
 
 def _ok(data: dict) -> str:
@@ -220,6 +233,7 @@ def add_food_entry(
     date: str | None = None,
     translation_id: int = 0,
     diary_group: str = "auto",
+    time: str | None = None,
 ) -> str:
     """Add a food entry to the Cronometer diary.
 
@@ -235,6 +249,9 @@ def add_food_entry(
         translation_id: Translation ID from search results (usually 0).
         diary_group: Meal slot -- one of "auto", "breakfast", "lunch",
                      "dinner", "snacks" (case-insensitive, default "auto").
+        time: Time of day as HH:MM or HH:MM:SS. Defaults to now. Pass the real
+            eating time when logging after the fact; an "auto" diary_group
+            then follows that hour instead of the current one.
     """
     try:
         group_map = {
@@ -263,6 +280,7 @@ def add_food_entry(
             translation_id=translation_id,
             day=day,
             diary_group=group_int,
+            time=_parse_time(time),
         )
         return _ok(
             {
@@ -1169,13 +1187,17 @@ def edit_food_entry(
     Args:
         entry_id: The serving ID of the entry to change.
         grams: New amount in grams.
-        time: New time as HH:MM:SS.
+        time: New time as HH:MM or HH:MM:SS.
         date: Date the entry is on as YYYY-MM-DD (defaults to today).
     """
     try:
         client = _get_client()
+        stamp = _parse_time(time)
         client.edit_serving(
-            entry_id, grams=grams, time=time, day=_parse_date(date)
+            entry_id,
+            grams=grams,
+            time=None if stamp is None else f"{stamp.hour}:{stamp.minute}:{stamp.second}",
+            day=_parse_date(date),
         )
         entry = client.find_entry(entry_id, "Serving", _parse_date(date))
         return _ok({"entry_id": entry_id, "grams": entry["grams"], "time": entry["time"]})
