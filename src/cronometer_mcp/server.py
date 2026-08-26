@@ -877,6 +877,10 @@ def update_custom_food(
         nutrients: Nutrient name to amount per serving, merged in.
         measures: [{"measure_id": int, "name": str, "grams": float}] to fix a
             wrongly weighted measure. name and grams are each optional.
+            Leave measure_id out to ADD a serving size instead, giving name and
+            grams: that is how a food gets a per-piece measure such as
+            "1 karkki" or "1 viipale" alongside plain grams, so it can be logged
+            by the count as well as by weight.
     """
     try:
         result = _get_client().update_custom_food(

@@ -1,3 +1,9 @@
+### 1.8.0: 2026-08-26
+
+* Add a serving size to an existing custom food
+* Log a food by the piece as well as by weight
+* A new measure inherits the food's own measure type
+
 ### 1.7.0: 2026-08-24
 
 * Log a food entry at a given time of day

@@ -1170,8 +1170,40 @@ class CronometerClient:
 
         if measures:
             by_id = {m.get("id"): m for m in food.get("measures", [])}
+            names = {m.get("name") for m in food.get("measures", [])}
+            # New measures inherit the type the food already uses: a weight-based
+            # recipe measures in Weight, a plain custom food in Atomic.
+            measure_type = next(
+                (m.get("type") for m in food.get("measures", []) if m.get("type")),
+                "Atomic",
+            )
             for patch in measures:
                 mid = patch.get("measure_id") or patch.get("id")
+                # No id means "add this one". Cronometer assigns the real id on save,
+                # which is how a food gets a second serving size such as a per-piece
+                # weight alongside plain grams.
+                if mid is None:
+                    new_name = patch.get("name")
+                    new_grams = patch.get("grams", patch.get("value"))
+                    if not new_name or new_grams is None:
+                        raise CronometerError(
+                            "A new measure needs both name and grams"
+                        )
+                    if new_name in names:
+                        raise CronometerError(
+                            f"Food {food_id} already has a measure named {new_name!r}"
+                        )
+                    food.setdefault("measures", []).append(
+                        {
+                            "id": 0,
+                            "name": new_name,
+                            "value": float(new_grams),
+                            "amount": 1.0,
+                            "type": measure_type,
+                        }
+                    )
+                    names.add(new_name)
+                    continue
                 target = by_id.get(mid)
                 if target is None:
                     raise CronometerError(
