@@ -10,7 +10,7 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.6.2-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.9.0-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
 
 </div>
 </center>
@@ -68,7 +68,9 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 | `edit_note` | Rewrite a note |
 | `add_biometric` | Record a measurement such as weight or body fat |
 | `edit_biometric` | Fix a measurement you got wrong |
+| `remove_biometric` | Delete a measurement, e.g. a broken scale's reading |
 | `add_exercise` | Add an exercise |
+| `remove_exercise` | Delete exercise entries |
 | `edit_exercise` | Change how long an exercise lasted, or how much it burned |
 | `add_fast` | Record a fast, finished or still running |
 | `edit_fast` | Change a fast's times or goal, including ending one that is still running |

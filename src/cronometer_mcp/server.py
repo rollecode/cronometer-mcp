@@ -53,8 +53,8 @@ mcp = FastMCP(
         "diary entries, read daily nutrients and goals, record measurements, "
         "exercise and fasts. Use search_foods to find a food, get_food_details "
         "for its nutrients and serving sizes, add_food_entry to log a meal, "
-        "and get_food_log to see what was eaten. Notes, measurements and "
-        "exercise entries can be added and changed but not deleted."
+        "and get_food_log to see what was eaten. Measurements and exercise "
+        "entries can be added, changed and deleted; notes can only be rewritten."
     ),
 )
 
@@ -1262,9 +1262,9 @@ def add_biometric(
 ) -> str:
     """Record a biometric measurement, such as weight or body fat.
 
-    Use list_biometrics to find metric IDs and their valid unit IDs.
-    Cronometer cannot delete measurements, only change their value, so fix a
-    wrong one with edit_biometric or remove it in the Cronometer app.
+    Use list_biometrics to find metric IDs and their valid unit IDs. Correct a
+    wrong value with edit_biometric, or drop the reading entirely with
+    remove_biometric when the measurement never happened.
 
     Args:
         metric_id: Metric to record, from list_biometrics.
@@ -1304,6 +1304,34 @@ def edit_biometric(biometric_id: int, amount: float, date: str | None = None) ->
         return _err(e)
 
 
+@mcp.tool(annotations=_DESTRUCTIVE)
+def remove_biometric(biometric_ids: list[str], date: str | None = None) -> str:
+    """Delete recorded biometrics, such as a reading from a misbehaving scale.
+
+    Deleting is right when the measurement never happened or is impossible;
+    edit_biometric is for a value that is merely wrong, since editing keeps the
+    day's entry and its history.
+
+    Args:
+        biometric_ids: List of biometric IDs to remove, from get_food_log.
+        date: Date the entries belong to as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        client = _get_client()
+        result = client.delete_entries(
+            biometric_ids, _parse_date(date), entry_type="Biometric"
+        )
+        return _ok(
+            {
+                "removed": result.get("removed", []),
+                "count": result.get("count", 0),
+                "date": date or str(date_module_today()),
+            }
+        )
+    except Exception as e:
+        return _err(e)
+
+
 # ------------------------------------------------------------------
 # Diary: exercise
 # ------------------------------------------------------------------
@@ -1318,8 +1346,8 @@ def add_exercise(
 ) -> str:
     """Log an exercise entry.
 
-    Cronometer cannot delete exercise entries, only change them, so fix a wrong
-    one with edit_exercise or remove it in the Cronometer app.
+    A wrong entry can be corrected with edit_exercise or deleted outright with
+    remove_exercise.
 
     Args:
         name: What the exercise was called.
@@ -1367,6 +1395,34 @@ def edit_exercise(
             day=_parse_date(date),
         )
         return _ok({"exercise_id": exercise_id})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def remove_exercise(exercise_ids: list[str], date: str | None = None) -> str:
+    """Delete logged exercise entries.
+
+    Use this for an entry that should not be there at all, such as a duplicate
+    from a tracker sync. edit_exercise is for one whose duration or burn is
+    merely wrong.
+
+    Args:
+        exercise_ids: List of exercise IDs to remove, from get_food_log.
+        date: Date the entries belong to as YYYY-MM-DD (defaults to today).
+    """
+    try:
+        client = _get_client()
+        result = client.delete_entries(
+            exercise_ids, _parse_date(date), entry_type="Exercise"
+        )
+        return _ok(
+            {
+                "removed": result.get("removed", []),
+                "count": result.get("count", 0),
+                "date": date or str(date_module_today()),
+            }
+        )
     except Exception as e:
         return _err(e)
 

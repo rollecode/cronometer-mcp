@@ -1507,28 +1507,48 @@ class CronometerClient:
     # Diary: delete entries
     # ------------------------------------------------------------------
 
-    def delete_entries(self, entry_ids: list[str], day: date | None = None) -> dict:
-        """Remove diary entries by their serving IDs.
+    def delete_entries(
+        self,
+        entry_ids: list[str],
+        day: date | None = None,
+        entry_type: str | None = None,
+    ) -> dict:
+        """Remove diary entries by their own ids.
 
-        Fetches the diary for the given day, matches entries by servingId,
-        and sends the full serving objects to the v3 DELETE endpoint.
+        Fetches the diary for the given day, matches entries by whichever id
+        field their type uses, and sends the full objects to the v3 DELETE
+        endpoint. The endpoint takes any diary entry, so this deletes servings,
+        biometrics and exercise alike; Cronometer's own app does the same.
 
         Uses: DELETE /api/v3/user/{userId}/diary-entries
 
         Args:
-            entry_ids: List of serving IDs to delete (as strings).
+            entry_ids: List of ids to delete (as strings).
             day: The day the entries belong to. Defaults to today.
+            entry_type: Serving, Biometric, Exercise or Note. Narrows the match
+                to that type's own id field, which matters when two entries of
+                different types happen to share a number.
 
         Returns dict with removed IDs and count.
         """
-        # Fetch the diary to get full serving objects (required by v3 API)
+        # Fetch the diary to get full entry objects (required by v3 API)
         diary_data = self.get_diary(day)
         diary_entries = diary_data.get("diary", [])
+
+        if entry_type is not None:
+            id_field = self._ID_FIELD.get(entry_type)
+            if id_field is None:
+                raise CronometerError(f"Unknown diary entry type: {entry_type}")
+            id_fields = [id_field]
+        else:
+            id_fields = list(self._ID_FIELD.values())
 
         id_set = {str(eid) for eid in entry_ids}
         to_delete = []
         for entry in diary_entries:
-            if str(entry.get("servingId")) in id_set:
+            if entry_type is not None and entry.get("type") != entry_type:
+                continue
+            if any(str(entry.get(f)) in id_set for f in id_fields):
                 to_delete.append(entry)
 
         if not to_delete:
@@ -1545,7 +1565,11 @@ class CronometerClient:
         )
 
         if resp.status_code == 204:
-            removed_ids = [str(e["servingId"]) for e in to_delete]
+            # Read each id from its own type's field: a biometric has no servingId.
+            removed_ids = [
+                str(e.get(self._ID_FIELD.get(e.get("type", ""), "servingId")))
+                for e in to_delete
+            ]
             logger.info(
                 "Deleted %d entries for %s: %s",
                 len(removed_ids),

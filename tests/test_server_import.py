@@ -44,6 +44,8 @@ EXPECTED_TOOLS = {
     "list_biometrics",
     "list_nutrients",
     "mark_day_complete",
+    "remove_biometric",
+    "remove_exercise",
     "remove_food_entry",
     "retire_custom_food",
     "search_foods",

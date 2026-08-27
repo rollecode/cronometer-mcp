@@ -1,3 +1,9 @@
+### 1.9.0: 2026-08-27
+
+* Delete a biometric measurement, such as a broken scale's reading
+* Delete logged exercise entries
+* Deleting matches each entry type's own id, not just `servingId`
+
 ### 1.8.0: 2026-08-26
 
 * Add a serving size to an existing custom food
