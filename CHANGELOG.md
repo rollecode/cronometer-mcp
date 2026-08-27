@@ -1,3 +1,8 @@
+### 1.9.2: 2026-08-27
+
+* Send the entry id when deleting, so a biometric is really removed
+* Refuse to report success when Cronometer accepted the delete but kept the entry
+
 ### 1.9.1: 2026-08-27
 
 * Deleting an entry synced from Apple Health no longer fails on its sample data

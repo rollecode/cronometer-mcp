@@ -1558,11 +1558,17 @@ class CronometerClient:
             )
             return {"removed": [], "count": 0}
 
-        # Drop "meta" before sending. Entries synced from Apple Health carry
-        # nested sample data in it, and the endpoint answers 400 "Not able to
-        # deserialize data provided" rather than deleting. Nothing in it
-        # identifies the entry, so removing it loses nothing.
-        payload = [{k: v for k, v in e.items() if k != "meta"} for e in to_delete]
+        # Two things the endpoint needs that a diary entry does not carry as-is.
+        # "meta" must go: entries synced from Apple Health hold nested sample
+        # data there and the endpoint answers 400 "Not able to deserialize data
+        # provided". And "id" must be present: without it a biometric deletion
+        # returns 204 while deleting nothing at all.
+        payload = []
+        for e in to_delete:
+            body = {k: v for k, v in e.items() if k != "meta"}
+            own_id = e.get(self._ID_FIELD.get(e.get("type", ""), "servingId"))
+            body["id"] = own_id
+            payload.append(body)
 
         resp = self._request_v3(
             "DELETE",
@@ -1570,23 +1576,39 @@ class CronometerClient:
             json_body={"diaryEntries": payload},
         )
 
-        if resp.status_code == 204:
-            # Read each id from its own type's field: a biometric has no servingId.
-            removed_ids = [
-                str(e.get(self._ID_FIELD.get(e.get("type", ""), "servingId")))
-                for e in to_delete
-            ]
-            logger.info(
-                "Deleted %d entries for %s: %s",
-                len(removed_ids),
-                self._format_day(day),
-                removed_ids,
-            )
-            return {"removed": removed_ids, "count": len(removed_ids)}
-        else:
+        if resp.status_code != 204:
             raise CronometerError(
                 f"Delete failed with status {resp.status_code}: {resp.text[:300]}"
             )
+
+        # Read each id from its own type's field: a biometric has no servingId.
+        removed_ids = [
+            str(e.get(self._ID_FIELD.get(e.get("type", ""), "servingId")))
+            for e in to_delete
+        ]
+
+        # A 204 is not proof: the endpoint returns it even when it matched
+        # nothing, so a silent no-op would otherwise be reported as success.
+        still_present = {
+            str(entry.get(field))
+            for entry in self.get_diary(day).get("diary", [])
+            for field in self._ID_FIELD.values()
+            if entry.get(field) is not None
+        }
+        survivors = [i for i in removed_ids if i in still_present]
+        if survivors:
+            raise CronometerError(
+                f"Cronometer accepted the delete but {survivors} are still in "
+                f"the diary for {self._format_day(day)}"
+            )
+
+        logger.info(
+            "Deleted %d entries for %s: %s",
+            len(removed_ids),
+            self._format_day(day),
+            removed_ids,
+        )
+        return {"removed": removed_ids, "count": len(removed_ids)}
 
     # ------------------------------------------------------------------
     # Diary: mark day complete

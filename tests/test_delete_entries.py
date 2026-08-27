@@ -35,17 +35,27 @@ DIARY = [
 ]
 
 
-def _client(tmp_path: Path) -> tuple[CronometerClient, list[dict]]:
+def _client(tmp_path: Path, *, actually_deletes: bool = True):
+    """Client over a fake diary. With actually_deletes=False the endpoint
+    answers 204 without removing anything, which is what Cronometer does when
+    the payload lacks an id."""
     client = CronometerClient(session_path=tmp_path / "session.json")
     client._user_id = 123
     client._token = "TOKEN"
     sent: list[dict] = []
+    diary = [dict(e) for e in DIARY]
 
     def fake_get_diary(day=None):
-        return {"diary": [dict(e) for e in DIARY]}
+        return {"diary": [dict(e) for e in diary]}
 
     def fake_v3(method, path, json_body=None):
         sent.append({"method": method, "path": path, "body": json_body})
+        if actually_deletes:
+            gone = {b.get("id") for b in json_body["diaryEntries"]}
+            diary[:] = [
+                e for e in diary
+                if not any(e.get(f) in gone for f in CronometerClient._ID_FIELD.values())
+            ]
         return FakeResp()
 
     client.get_diary = fake_get_diary  # type: ignore[method-assign]
@@ -121,3 +131,20 @@ def test_meta_is_stripped_before_sending(tmp_path):
     # Everything that identifies the entry is still there.
     assert body["biometricId"] == 2
     assert body["type"] == "Biometric"
+
+
+def test_id_field_is_sent(tmp_path):
+    """Without a plain "id" the endpoint returns 204 and deletes nothing."""
+    client, sent = _client(tmp_path)
+
+    client.delete_entries(["2"], entry_type="Biometric")
+
+    assert sent[0]["body"]["diaryEntries"][0]["id"] == 2
+
+
+def test_silent_no_op_is_an_error(tmp_path):
+    """A 204 that left the entry in place must not be reported as success."""
+    client, _ = _client(tmp_path, actually_deletes=False)
+
+    with pytest.raises(CronometerError, match="still in the diary"):
+        client.delete_entries(["2"], entry_type="Biometric")
