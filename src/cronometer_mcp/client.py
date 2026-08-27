@@ -1558,10 +1558,16 @@ class CronometerClient:
             )
             return {"removed": [], "count": 0}
 
+        # Drop "meta" before sending. Entries synced from Apple Health carry
+        # nested sample data in it, and the endpoint answers 400 "Not able to
+        # deserialize data provided" rather than deleting. Nothing in it
+        # identifies the entry, so removing it loses nothing.
+        payload = [{k: v for k, v in e.items() if k != "meta"} for e in to_delete]
+
         resp = self._request_v3(
             "DELETE",
             "/diary-entries",
-            json_body={"diaryEntries": to_delete},
+            json_body={"diaryEntries": payload},
         )
 
         if resp.status_code == 204:

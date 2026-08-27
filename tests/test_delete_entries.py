@@ -22,7 +22,14 @@ class FakeResp:
 
 DIARY = [
     {"type": "Serving", "servingId": 1, "foodId": 10},
-    {"type": "Biometric", "biometricId": 2, "metricId": 8, "amount": 75.0},
+    {
+        "type": "Biometric",
+        "biometricId": 2,
+        "metricId": 8,
+        "amount": 75.0,
+        # Apple Health entries carry nested sample data here.
+        "meta": {"sampleDataV2": {"count": 1, "mean": 75.0}},
+    },
     {"type": "Exercise", "exerciseId": 3, "minutes": 30},
     {"type": "Note", "noteId": 4, "text": "note"},
 ]
@@ -101,3 +108,16 @@ def test_unknown_type_errors(tmp_path):
 
     with pytest.raises(CronometerError, match="Unknown diary entry type"):
         client.delete_entries(["1"], entry_type="Nonsense")
+
+
+def test_meta_is_stripped_before_sending(tmp_path):
+    """The endpoint answers 400 when meta is present, so it never goes out."""
+    client, sent = _client(tmp_path)
+
+    client.delete_entries(["2"], entry_type="Biometric")
+
+    body = sent[0]["body"]["diaryEntries"][0]
+    assert "meta" not in body
+    # Everything that identifies the entry is still there.
+    assert body["biometricId"] == 2
+    assert body["type"] == "Biometric"

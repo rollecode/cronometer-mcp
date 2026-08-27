@@ -1,3 +1,7 @@
+### 1.9.1: 2026-08-27
+
+* Deleting an entry synced from Apple Health no longer fails on its sample data
+
 ### 1.9.0: 2026-08-27
 
 * Delete a biometric measurement, such as a broken scale's reading
