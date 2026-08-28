@@ -1,3 +1,7 @@
+### 1.9.3: 2026-08-28
+
+* Editing a custom food's nutrients no longer multiplies its diary entries
+
 ### 1.9.2: 2026-08-27
 
 * Send the entry id when deleting, so a biometric is really removed

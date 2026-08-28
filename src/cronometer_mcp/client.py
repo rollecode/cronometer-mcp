@@ -1122,6 +1122,20 @@ class CronometerClient:
         )
         return found
 
+    @staticmethod
+    def _serving_grams(food: dict) -> float:
+        """Weight the food's per-serving nutrient amounts refer to.
+
+        Cronometer stores nutrients per 100 g, so this is the divisor between
+        what a caller states on a label and what goes on the wire.
+        """
+        measures = [m for m in food.get("measures", []) if m.get("value")]
+        if not measures:
+            return 100.0
+        default_id = food.get("defaultMeasureId")
+        chosen = next((m for m in measures if m.get("id") == default_id), measures[0])
+        return float(chosen["value"])
+
     def update_custom_food(
         self,
         food_id: int,
@@ -1155,18 +1169,6 @@ class CronometerClient:
             food["name"] = name
         if notes is not None:
             food["comments"] = notes
-
-        if nutrients:
-            resolved = {n["id"]: n["amount"] for n in self.resolve_nutrients(nutrients)}
-            existing = {
-                n["id"]: n for n in food.get("nutrients", []) if isinstance(n, dict)
-            }
-            for nid, amount in resolved.items():
-                if nid in existing:
-                    existing[nid]["amount"] = amount
-                else:
-                    existing[nid] = {"id": nid, "amount": amount}
-            food["nutrients"] = list(existing.values())
 
         if measures:
             by_id = {m.get("id"): m for m in food.get("measures", [])}
@@ -1215,6 +1217,24 @@ class CronometerClient:
                 grams = patch.get("grams", patch.get("value"))
                 if grams is not None:
                     target["value"] = float(grams)
+
+        # After the measures, so correcting a serving weight and its nutrients
+        # in one call uses the new weight.
+        if nutrients:
+            scale = 100.0 / self._serving_grams(food)
+            resolved = {
+                n["id"]: round(n["amount"] * scale, 4)
+                for n in self.resolve_nutrients(nutrients)
+            }
+            existing = {
+                n["id"]: n for n in food.get("nutrients", []) if isinstance(n, dict)
+            }
+            for nid, amount in resolved.items():
+                if nid in existing:
+                    existing[nid]["amount"] = amount
+                else:
+                    existing[nid] = {"id": nid, "amount": amount}
+            food["nutrients"] = list(existing.values())
 
         self._save_food(food)
         logger.info("Updated custom food %s", food_id)
