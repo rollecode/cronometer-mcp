@@ -552,33 +552,16 @@ def get_food_details(food_id: int) -> str:
     Use this after search_foods to get the full nutrient profile and
     available measure_ids needed for add_food_entry.
 
+    `nutrients` is for one serving of `serving_grams`, keyed and scaled exactly
+    as add_custom_food and update_custom_food take them, so a value read here
+    can be written straight back unchanged. Cronometer's own stored rows, per
+    100 g and by numeric id, are alongside as `nutrients_per_100g`.
+
     Args:
         food_id: Food ID from search_foods results.
     """
     try:
-        client = _get_client()
-        data = client.get_food(food_id)
-
-        # Extract measures for easy reference
-        measures = []
-        for m in data.get("measures", []):
-            measures.append(
-                {
-                    "measure_id": m.get("id"),
-                    "name": m.get("name"),
-                    "grams": m.get("value"),
-                }
-            )
-
-        return _ok(
-            {
-                "food_id": data.get("id"),
-                "name": data.get("name"),
-                "default_measure_id": data.get("defaultMeasureId"),
-                "measures": measures,
-                "nutrients": data.get("nutrients", []),
-            }
-        )
+        return _ok(_get_client().get_food_details(food_id))
     except Exception as e:
         return _err(e)
 
@@ -606,8 +589,9 @@ def add_custom_food(
 ) -> str:
     """Create a custom food with any nutrients you have, from 1 to all 94.
 
-    Amounts are for one whole serving, each in that nutrient's own unit. Call
-    list_nutrients for the accepted names and their units. Only pass the
+    Amounts are for one whole serving of serving_grams, not per 100 g, each in
+    that nutrient's own unit. Call list_nutrients for the accepted names and
+    their units. Only pass the
     nutrients you actually know: a nutrient you leave out stays blank in
     Cronometer, while passing 0 states the food contains none of it, and the
     app treats those differently. An unrecognised name is an error, so nothing
@@ -869,6 +853,11 @@ def update_custom_food(
 
     Nutrients are merged into the existing profile, so correcting one value
     leaves the rest alone. Call list_nutrients for the accepted names.
+
+    Amounts are for one serving, the same basis get_food_details reports and
+    returns as `serving_grams`. That is the food's default measure, which is
+    not always 100 g: a juice measured in millilitres takes per-millilitre
+    values. Read the food first and the two always agree.
 
     Args:
         food_id: The custom food to edit.

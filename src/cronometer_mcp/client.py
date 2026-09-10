@@ -585,6 +585,44 @@ class CronometerClient:
         )
         return data
 
+    def get_food_details(self, food_id: int) -> dict:
+        """A food's measures plus its nutrients on the basis edits are written on.
+
+        Cronometer stores nutrients per 100 g, while create_custom_food and
+        update_custom_food take amounts for one serving. Reporting the stored
+        rows made a read-modify-write multiply every value of a food whose
+        serving is not 100 g, so `nutrients` is scaled to the serving and keyed
+        by the same names the two writers accept. The stored rows stay
+        available as `nutrients_per_100g`, computed ones included.
+        """
+        food = self.get_food(food_id)
+        serving_grams = self._serving_grams(food)
+        scale = serving_grams / 100.0
+        names = {meta["id"]: key for key, meta in self.nutrient_index().items()}
+
+        per_serving: dict[str, float] = {}
+        for row in food.get("nutrients", []):
+            if not isinstance(row, dict):
+                continue
+            key = names.get(row.get("id"))
+            if key is None:
+                continue
+            per_serving[key] = round(float(row.get("amount", 0.0)) * scale, 8)
+
+        return {
+            "food_id": food.get("id"),
+            "name": food.get("name"),
+            "notes": food.get("comments"),
+            "default_measure_id": food.get("defaultMeasureId"),
+            "measures": [
+                {"measure_id": m.get("id"), "name": m.get("name"), "grams": m.get("value")}
+                for m in food.get("measures", [])
+            ],
+            "serving_grams": serving_grams,
+            "nutrients": per_serving,
+            "nutrients_per_100g": food.get("nutrients", []),
+        }
+
     def get_foods(self, food_ids: list[int]) -> list[dict]:
         """Batch-fetch full food details for many food IDs in one call.
 
@@ -1153,6 +1191,9 @@ class CronometerClient:
 
         Nutrients given are merged into the existing profile rather than
         replacing it, so fixing one wrong value does not blank the other 93.
+        They are amounts for one serving, on the basis get_food_details
+        reports as `serving_grams`, which is the food's default measure and
+        not necessarily 100 g.
         Measures are matched by measure_id; name and grams are each optional.
         """
         food = self.get_food(food_id)
@@ -1243,6 +1284,7 @@ class CronometerClient:
             "food_id": food_id,
             "name": fresh.get("name"),
             "notes": fresh.get("comments"),
+            "serving_grams": self._serving_grams(fresh),
             "measures": [
                 {"measure_id": m.get("id"), "name": m.get("name"), "grams": m.get("value")}
                 for m in fresh.get("measures", [])

@@ -1,3 +1,9 @@
+### 1.10.0: 2026-09-11
+
+* get_food_details reports nutrients per serving, as edits take them
+* Stored per-100 g rows kept as `nutrients_per_100g`
+* Food details state the serving weight edits use
+
 ### 1.9.3: 2026-08-28
 
 * Editing a custom food's nutrients no longer multiplies its diary entries
