@@ -145,6 +145,47 @@ class CronometerError(Exception):
     """Raised when a Cronometer API call fails."""
 
 
+REQUIRED_ENV_VARS = ("CRONOMETER_USERNAME", "CRONOMETER_PASSWORD", _ACCOUNT_TZ_ENV)
+
+
+def check_environment() -> None:
+    """Fail fast at startup if the deploy is missing credentials.
+
+    Without this the first tool call is where a missing variable surfaces,
+    as an error string inside an MCP response. On a hosted deploy nobody is
+    reading those, so the process has to refuse to start instead.
+
+    Raises CronometerError naming every missing or invalid variable at once,
+    so one restart is enough to see the whole list.
+    """
+    problems = []
+    for name in REQUIRED_ENV_VARS:
+        if not os.getenv(name):
+            problems.append(f"{name} is not set")
+    tz = os.getenv(_ACCOUNT_TZ_ENV)
+    if tz:
+        try:
+            ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            problems.append(f"{_ACCOUNT_TZ_ENV}={tz!r} is not a known IANA timezone")
+    if os.getenv("CRONOMETER_TOTP_SECRET"):
+        try:
+            import pyotp  # noqa: F401
+        except ImportError:
+            problems.append(
+                "CRONOMETER_TOTP_SECRET is set but pyotp is not installed "
+                "(install the 'totp' extra)"
+            )
+    if problems:
+        raise CronometerError(
+            "Cronometer MCP is misconfigured:\n  - "
+            + "\n  - ".join(problems)
+            + "\nSet these in the environment. Required: "
+            + ", ".join(REQUIRED_ENV_VARS)
+            + ". Optional: CRONOMETER_TOTP_SECRET (only with 2FA on)."
+        )
+
+
 class CronometerClient:
     """Stateful client for the Cronometer mobile API.
 

@@ -9,7 +9,7 @@ from datetime import time as dtime
 
 from mcp.server.fastmcp import FastMCP
 
-from .client import CronometerClient
+from .client import CronometerClient, CronometerError, check_environment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1584,6 +1584,13 @@ def main():
     dotenv_path = find_dotenv(usecwd=True)
     if dotenv_path and load_dotenv(dotenv_path, override=False):
         logger.info("Loaded .env from %s", dotenv_path)
+
+    # Refuse to start on a half-configured deploy rather than serving tools
+    # that fail one by one at call time.
+    try:
+        check_environment()
+    except CronometerError as exc:
+        raise SystemExit(str(exc)) from exc
 
     parser = argparse.ArgumentParser(prog="cronometer-mcp")
     parser.add_argument(
