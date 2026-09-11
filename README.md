@@ -268,7 +268,8 @@ names what is missing.
 | `CRONOMETER_ACCOUNT_TZ` | yes | IANA zone your diary days are counted in, e.g. `Europe/Madrid` |
 | `CRONOMETER_TOTP_SECRET` | only with 2FA | Two-factor secret. Needs the `totp` extra |
 | `PORT` | no | HTTP port, 8430 by default. Ignored on Horizon |
-| `HOST` | no | HTTP bind address, `0.0.0.0` by default. Ignored on Horizon |
+| `HOST` | no | HTTP bind address, `127.0.0.1` by default. Ignored on Horizon |
+| `CRONOMETER_ALLOW_PUBLIC_BIND` | no | Set to `1` to allow a non-local `HOST`. The server has no login of its own, so only set it when something in front of it authenticates. Ignored on Horizon |
 | `MCP_TRANSPORT` | no | `streamable-http` (default) or `stdio` |
 | `CRONOMETER_CACHE_DIR` | no | Where the session cache goes |
 

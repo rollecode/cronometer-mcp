@@ -13,6 +13,7 @@ import logging
 import math
 import os
 import tempfile
+import threading
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
@@ -222,6 +223,11 @@ class CronometerClient:
         # Cache of nutrient definitions (id -> {name, unit, category}).
         # Definitions are stable for an account, so fetch them once.
         self._nutrient_defs: dict[int, dict] | None = None
+        # Serialises login(): the tools are sync and the runtime runs them in
+        # threads against one shared client, so an expired token would
+        # otherwise send every waiting thread into /api/v2/login at once and
+        # Cronometer locks the account out for that.
+        self._login_lock = threading.Lock()
         self._http = httpx.Client(
             base_url=BASE_URL,
             headers={
@@ -230,6 +236,10 @@ class CronometerClient:
                 "accept-encoding": "gzip",
             },
             timeout=30.0,
+            # Ignore HTTP_PROXY/HTTPS_PROXY/ALL_PROXY from the environment. A
+            # hosting platform can inject them, and the login POST carries the
+            # account password in its body.
+            trust_env=False,
         )
         self._load_cached_session()
 
@@ -344,7 +354,19 @@ class CronometerClient:
             ) from exc
         return pyotp.TOTP(secret.replace(" ", "")).now()
 
-    def login(self) -> None:
+    def login(self, *, force: bool = False) -> None:
+        """Authenticate, at most one thread at a time.
+
+        Every caller invalidates the session before asking for a login, so a
+        thread that reaches the lock and finds a token already there was beaten
+        to it by another thread and has nothing left to do.
+        """
+        with self._login_lock:
+            if self._token is not None and not force:
+                return
+            self._do_login()
+
+    def _do_login(self) -> None:
         """Authenticate with Cronometer and cache the session token."""
         username, password = self._get_credentials()
 
@@ -377,7 +399,7 @@ class CronometerClient:
             "config": {"call_version": 2},
         }
 
-        logger.info("Logging in to Cronometer as %s", username)
+        logger.info("Logging in to Cronometer")
         resp = self._http.post("/api/v2/login", json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -400,10 +422,9 @@ class CronometerClient:
         self._timezone = self._resolve_timezone(data.get("timezone"))
         self._save_cached_session()
         logger.info(
-            "Cronometer login successful (userId=%d, tz=%s, token=%s...)",
+            "Cronometer login successful (userId=%d, tz=%s)",
             self._user_id,
             self._timezone,
-            self._token[:8] if self._token else "???",
         )
 
     def _ensure_auth(self) -> None:
@@ -470,7 +491,10 @@ class CronometerClient:
                 w in error_text for w in ("token", "session", "auth", "login")
             )
             if auth_shaped and not _retried:
-                logger.warning("Cronometer session rejected, re-authenticating: %s", data)
+                logger.warning("Cronometer session rejected, re-authenticating")
+                # The payload is useful when debugging but can carry session
+                # detail, and Horizon's audit log runs at INFO.
+                logger.debug("Rejected session response: %s", data)
                 self._invalidate_session()
                 self.login()
                 return self._request(endpoint, payload, _retried=True)

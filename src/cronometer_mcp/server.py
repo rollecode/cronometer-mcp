@@ -9,8 +9,14 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
 from mcp.server.mcpserver import MCPServer
+from mcp.types import Icon
 
 from .client import CronometerClient, CronometerError, check_environment
+
+# Public base URL the icons are served from. Unset means no icons and no
+# website_url, which is the right shape for a server nobody reaches by URL.
+_ICON_BASE = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
+_ICON_SIZES = (48, 96, 256)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +61,21 @@ mcp = MCPServer(
     "cronometer",
     version=__version__,
     lifespan=_lifespan,
+    icons=(
+        [
+            Icon(
+                src=f"{_ICON_BASE}/icon.png"
+                if size == 256
+                else f"{_ICON_BASE}/icon-{size}.png",
+                mimeType="image/png",
+                sizes=[f"{size}x{size}"],
+            )
+            for size in _ICON_SIZES
+        ]
+        if _ICON_BASE
+        else None
+    ),
+    website_url=_ICON_BASE or None,
     instructions=(
         "Read and write a Cronometer food diary: search foods, add and change "
         "diary entries, read daily nutrients and goals, record measurements, "
@@ -125,8 +146,16 @@ def _err(e: Exception) -> str:
         msg = "Request timed out. Cronometer may be slow -- try again."
     elif isinstance(e, httpx.ConnectError):
         msg = "Could not connect to Cronometer. Check network connectivity."
+    elif isinstance(e, ValueError):
+        # Argument validation: bad date, bad time, unknown diary group. The
+        # message is written for whoever made the call, and some of these are
+        # built by hand outside any `except`, so it goes straight back.
+        msg = str(e)
     else:
-        msg = f"{type(e).__name__}: {e}"
+        # Anything else is an internal detail: it goes to the log, not back to
+        # the caller.
+        logger.exception("Unhandled error in tool")
+        msg = "Internal error. Check the server logs."
 
     return json.dumps({"status": "error", "message": msg})
 
@@ -1616,9 +1645,10 @@ def main():
         choices=("streamable-http", "stdio"),
         default=os.getenv("MCP_TRANSPORT", "streamable-http"),
     )
-    # 0.0.0.0 so a container platform's router can reach the process. This
-    # server has no login of its own, so never expose that port directly.
-    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
+    # Local by default: this server has no login of its own. A container that
+    # needs the process reachable sets HOST and CRONOMETER_ALLOW_PUBLIC_BIND
+    # together, which is the explicit way to opt out of the guard below.
+    parser.add_argument("--host", default=os.getenv("HOST", "127.0.0.1"))
     # PORT is what container platforms inject; MCP_PORT is the legacy name.
     parser.add_argument(
         "--port",
@@ -1637,6 +1667,16 @@ def main():
     if args.transport == "stdio":
         mcp.run(transport="stdio")
         return
+
+    local = ("127.0.0.1", "::1", "localhost")
+    if args.host not in local and os.getenv("CRONOMETER_ALLOW_PUBLIC_BIND") != "1":
+        raise SystemExit(
+            f"refusing to listen on {args.host}: this server has no login of "
+            "its own, so anyone reaching the port gets full read and write "
+            "access to the diary. Keep it on the local interface behind an "
+            "authenticating proxy, or set CRONOMETER_ALLOW_PUBLIC_BIND=1 when "
+            "something else already terminates authentication."
+        )
 
     logger.info("Listening on http://%s:%d/mcp", args.host, args.port)
     mcp.run(transport="streamable-http", host=args.host, port=args.port)
