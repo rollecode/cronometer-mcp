@@ -10,14 +10,16 @@ Cronometer MCP server
 </h1>
 
 
-![Version](https://img.shields.io/badge/version-1.9.2-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Node](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white) ![OAuth](https://img.shields.io/badge/OAuth_2.1-EB5424?style=for-the-badge&logo=auth0&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.9.2-blue.svg?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
 </div>
 </center>
 
 <hr>
 
-Read and write your Cronometer food diary from Claude.ai and Claude Code. It talks to `mobile.cronometer.com`, the same API the Cronometer Android app uses, and puts an OAuth 2.1 login in front so you can add it to Claude.ai as a custom connector. Claude Code can use a plain token instead. You do not need a Gold subscription, and there is no limit of ten exports a day like there is with CSV export.
+Read and write your Cronometer food diary from Claude.ai and Claude Code. It talks to `mobile.cronometer.com`, the same API the Cronometer Android app uses. You do not need a Gold subscription, and there is no limit of ten exports a day like there is with CSV export.
+
+This fork is a pure Python MCP server, meant to be deployed on [Prefect Horizon](https://www.prefect.io/horizon), which provides the OAuth. The upstream project bundles its own Node login layer instead; `main` here still tracks it.
 
 <hr>
 
@@ -210,267 +212,99 @@ calorie column and no timestamp, so a write that would lose one is refused
 rather than repaired afterwards. Passing `measures` patches the ids you name
 and leaves the rest alone.
 
-## How it fits together
+## Running it
 
-```
-Claude.ai / Claude Code
-        |  HTTPS
-   Cloudflare Tunnel, or any proxy that gives you HTTPS
-        |
-   nginx  127.0.0.1:8431
-        |
-   auth-server.js  :8432    handles the login and the tokens
-        |
-   cronometer-mcp  :8430    the server itself, local only
-        |
-   mobile.cronometer.com
-```
+The server is a plain Python MCP server. It has no login of its own: whatever
+runs it is responsible for authenticating callers.
 
-The server itself has no login of its own, and it refuses to listen on anything but the local machine. So anything that reaches it has already got past the login. That login accepts either an OAuth token, which is what Claude.ai sets up for you, or a fixed token, which is quicker for Claude Code.
+### On Prefect Horizon
 
-## Install
+Horizon terminates OAuth, injects the environment and drives the transport, so
+there is nothing to install and no proxy to run.
 
-```bash
-git clone https://github.com/rollecode/cronometer-mcp.git
-cd cronometer-mcp
-./install.sh
-```
-
-The installer sets up Python and Node, asks for your Cronometer login and a password for the connector's login page, makes a token, and writes the service files and the nginx site with your own hostname and username filled in.
-
-You need Node 18 or newer, Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
-
-Putting the server online is left to you, because this is where setups differ the most, and a wrong guess here would put your food diary on the public internet. Point a tunnel or a proxy at `127.0.0.1:8431`. With Cloudflare Tunnel:
-
-```yaml
-ingress:
-  - hostname: cronometer-mcp.example.com
-    service: http://localhost:8431
-```
-
-It has to be HTTPS. OAuth will not work over plain HTTP.
-
-## Self-hosting it by hand
-
-If you would rather see every step than run the installer, this is all of it.
-The end state is two services on your own machine, reachable over HTTPS.
-
-### 1. Get the code and its dependencies
-
-```bash
-git clone https://github.com/rollecode/cronometer-mcp.git
-cd cronometer-mcp
-npm install --omit=dev
-uv venv && uv pip install -e .
-```
-
-### 2. Store your Cronometer login
-
-```bash
-./set-credentials.sh
-```
-
-It prompts for your email, password and time zone, and writes them to
-`~/.config/cronometer-mcp/env` with mode 0600. The password is never echoed and
-never reaches your shell history. Do it by hand if you prefer:
-
-```bash
-mkdir -p ~/.config/cronometer-mcp && chmod 700 ~/.config/cronometer-mcp
-cat > ~/.config/cronometer-mcp/env <<'EOF'
-CRONOMETER_USERNAME=you@example.com
-CRONOMETER_PASSWORD=your-password
-CRONOMETER_ACCOUNT_TZ=Europe/Helsinki
-EOF
-chmod 600 ~/.config/cronometer-mcp/env
-```
-
-Check it works before going further. This logs in and prints your diary:
-
-```bash
-set -a && . ~/.config/cronometer-mcp/env && set +a
-.venv/bin/python -c "from cronometer_mcp import CronometerClient; c=CronometerClient(); print(c.get_diary()['summary'])"
-```
-
-### 3. Set the connector password and a token
-
-The password is what you type on the sign-in page when adding the connector in
-Claude.ai. Only its scrypt hash is stored.
-
-```bash
-CONFIG_DIR=~/.config/cronometer-mcp node set-password.js 'your-password-here'
-```
-
-The token is the shortcut for Claude Code, which sends a header and skips the
-browser entirely.
-
-```bash
-openssl rand -hex 32 > ~/.config/cronometer-mcp/token
-chmod 600 ~/.config/cronometer-mcp/token
-```
-
-### 4. Install the two services
-
-`systemd/` holds both unit files. Replace `YOUR_USER` with your username and
-`cronometer-mcp.example.com` with your hostname, then:
-
-```bash
-mkdir -p ~/.cache/cronometer-mcp
-sudo cp systemd/cronometer-mcp.service systemd/cronometer-mcp-auth.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now cronometer-mcp cronometer-mcp-auth
-systemctl status cronometer-mcp cronometer-mcp-auth
-```
-
-`cronometer-mcp` is the server itself on :8430, reachable only from the machine
-it runs on. `cronometer-mcp-auth` is the login layer on :8432, and it is the
-only thing that talks to :8430.
-
-One trap worth naming, because the symptom is confusing: do not add
-`IPAddressDeny=any` to `cronometer-mcp.service`. It is a sensible hardening line
-for a server that only reads local files, but this one has to reach
-`mobile.cronometer.com`, and with it set every tool call hangs until it times
-out while systemd still reports the service as active. Nothing is gained by it
-either, since the server already refuses to listen beyond the local machine.
-
-### 5. Put nginx in front
-
-```bash
-sudo cp nginx/cronometer-mcp.conf /etc/nginx/sites-enabled/cronometer-mcp
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-It listens on `127.0.0.1:8431` and passes everything to the login layer. The
-long read timeout and `proxy_buffering off` matter: the MCP holds the connection
-open and sends as it goes, and buffering would stall it.
-
-### 6. Give it an HTTPS address
-
-A Cloudflare Tunnel avoids opening a router port. Any HTTPS reverse proxy works
-just as well.
-
-```yaml
-ingress:
-  - hostname: cronometer-mcp.example.com
-    service: http://localhost:8431
-```
-
-```bash
-cloudflared tunnel route dns YOUR_TUNNEL cronometer-mcp.example.com
-sudo systemctl restart cloudflared
-```
-
-### 7. Check it from outside
-
-```bash
-curl https://cronometer-mcp.example.com/.well-known/oauth-authorization-server
-curl -o /dev/null -w '%{http_code}\n' -X POST https://cronometer-mcp.example.com/mcp
-```
-
-The first returns the login details. The second must return `401`: anything else
-means the login layer is being bypassed and your diary is exposed.
-
-Then connect a client as described under [Connecting](#connecting).
-
-### Updating
-
-```bash
-git pull
-uv pip install -e . && npm install --omit=dev
-sudo systemctl restart cronometer-mcp cronometer-mcp-auth
-```
-
-After adding or renaming a tool, press Reconnect on the connector in Claude.ai.
-That refreshes the tool list inside a conversation you already have open, and
-your sign-in survives it, because tokens live in `oauth.db` on disk rather than
-in memory.
-
-### When something is wrong
-
-```bash
-journalctl -u cronometer-mcp -n 50 --no-pager
-journalctl -u cronometer-mcp-auth -n 50 --no-pager
-```
-
-| What you see | What it usually is |
+| Setting | Value |
 | --- | --- |
-| Tool calls hang, service says active | `IPAddressDeny` on the MCP unit, see step 4 |
-| `401` on every call from Claude Code | Token mismatch, compare the header against `~/.config/cronometer-mcp/token` |
-| Sign-in page rejects the password | No hash stored yet, run step 3 |
-| Login fails asking for a 2FA code | See [If you use two-factor](#if-you-use-two-factor) |
-| `502` from nginx | The login layer is down, `systemctl status cronometer-mcp-auth` |
+| Entrypoint | `main.py:mcp` |
+| Dependencies | detected from `pyproject.toml` |
+| Authentication | enable it in Horizon; the server has none of its own |
 
-## Connecting
+The entrypoint must be `main.py:mcp`, not `src/cronometer_mcp/server.py:mcp`.
+Horizon imports the file by path, which leaves it without package context, and
+the package's relative imports fail. `main.py` is a three-line shim that
+imports the package by name.
 
-**Claude.ai.** Go to Settings, Connectors, Add custom connector, and give it `https://your-host/mcp`. Leave the client ID and secret empty. Sign in with the password the installer set. Doing this once covers web, desktop and mobile, because connectors belong to your account rather than one device.
-
-**Claude Code, through the browser:**
-
-```bash
-claude mcp add --transport http cronometer https://your-host/mcp --scope user
-```
-
-Then run `/mcp` to sign in.
-
-**Claude Code, with a token, no browser:**
+Check it before deploying:
 
 ```bash
-claude mcp add --transport http cronometer https://your-host/mcp \
-  --header "Authorization: Bearer $(cat ~/.config/cronometer-mcp/token)" \
-  --scope user
+uv run fastmcp inspect main.py:mcp   # should report 40 tools
 ```
 
-## Using it without a server at all
-
-If Claude runs on the same machine, skip the web server and the login entirely
-and let it start the MCP directly:
+### Anywhere else
 
 ```bash
-claude mcp add cronometer -- /path/to/cronometer-mcp/.venv/bin/cronometer-mcp
+uv venv && uv pip install -e .
+.venv/bin/cronometer-mcp                    # streamable HTTP on $PORT (8430)
+.venv/bin/cronometer-mcp --transport stdio  # for a local MCP client
 ```
 
-It reads your login from `~/.config/cronometer-mcp/env` or from a `.env` file.
+Over HTTP it binds `0.0.0.0` and has no authentication, so put something in
+front of it or keep the port private.
+
+To let Claude Code start it directly, no server at all:
+
+```bash
+claude mcp add cronometer -- /path/to/cronometer-mcp/.venv/bin/cronometer-mcp --transport stdio
+```
 
 ## Settings
 
-| Variable | What it is for |
-| --- | --- |
-| `CRONOMETER_USERNAME` | Your Cronometer email |
-| `CRONOMETER_PASSWORD` | Your Cronometer password |
-| `CRONOMETER_ACCOUNT_TZ` | The time zone your diary days are counted in |
-| `CRONOMETER_TOTP_SECRET` | Your two-factor secret, only if you have two-factor on. Needs the `totp` extra |
-| `ISSUER` | The public address of the server |
-| `PORT` | Login server port, 8432 by default |
-| `UPSTREAM` | Where the MCP server is, `http://127.0.0.1:8430` by default |
-| `CONFIG_DIR` | Where the password, token and database are kept |
-| `CALL_TIMEOUT_MS` | How long a call may go quiet before it is cut off, 120000 by default |
-| `MCP_PORT` | MCP server port, 8430 by default |
-| `MCP_PUBLIC_URL` | Public address, used to advertise the icon to clients |
+All configuration is environment variables. The server refuses to start and
+names what is missing.
 
-Everything secret lives in `~/.config/cronometer-mcp/`, readable only by you: `env` holds your Cronometer login, `password-hash` the password for the connector's login page, `token` the fixed token, and `oauth.db` the apps and tokens the login server has handed out. Tokens are stored scrambled, so a stolen copy of the database gives nobody a working key.
+| Variable | Required | What it is for |
+| --- | --- | --- |
+| `CRONOMETER_USERNAME` | yes | Your Cronometer email |
+| `CRONOMETER_PASSWORD` | yes | Your Cronometer password |
+| `CRONOMETER_ACCOUNT_TZ` | yes | IANA zone your diary days are counted in, e.g. `Europe/Madrid` |
+| `CRONOMETER_TOTP_SECRET` | only with 2FA | Two-factor secret. Needs the `totp` extra |
+| `PORT` | no | HTTP port, 8430 by default. Ignored on Horizon |
+| `HOST` | no | HTTP bind address, `0.0.0.0` by default. Ignored on Horizon |
+| `MCP_TRANSPORT` | no | `streamable-http` (default) or `stdio` |
+| `CRONOMETER_CACHE_DIR` | no | Where the session cache goes |
 
-Your Cronometer session is saved in `~/.cache/cronometer-mcp/session.json`, so restarting the server does not log in again and again and hit Cronometer's limit.
+For local development a `.env` file in the working directory is read too. Real
+environment variables win over it. `.env` is gitignored; keep it that way.
+
+### The session cache
+
+The Cronometer session token is cached at
+`<cache dir>/cronometer-mcp/session.json` so restarts do not re-login and hit
+Cronometer's rate limit. It is an optimisation, not state: an ephemeral or
+read-only filesystem costs one extra login on cold start and nothing else.
+Cache dir is `CRONOMETER_CACHE_DIR`, else `XDG_CACHE_HOME`, else `~/.cache`.
 
 ### If you use two-factor
 
-A server left running on its own cannot type a code, so it needs the secret behind the code instead:
+A server left running on its own cannot type a code, so it needs the secret
+behind the code instead:
 
 ```bash
 uv pip install -e '.[totp]'
 ```
 
-Then set `CRONOMETER_TOTP_SECRET` to the secret from your authenticator app. Without it, an account with two-factor turned on will fail to log in and tell you exactly this.
+Then set `CRONOMETER_TOTP_SECRET` to the secret from your authenticator app.
+Without it, an account with two-factor turned on will fail to log in and tell
+you exactly this.
 
 ## Working on the code
 
 ```bash
 uv venv && uv pip install -e . && uv pip install pytest ruff
 .venv/bin/python -m pytest tests -q
-.venv/bin/python -m ruff check src/ tests/
+.venv/bin/python -m ruff check src/ tests/ main.py
 ```
 
 ## Credits
 
 The Cronometer client started as a copy of
 [rwestergren/cronometer-api-mcp](https://github.com/rwestergren/cronometer-api-mcp).
-The login layer comes from
-[rollecode/obsidian-remote-mcp](https://github.com/rollecode/obsidian-remote-mcp).
