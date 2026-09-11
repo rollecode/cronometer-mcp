@@ -8,7 +8,6 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import Icon
 
 from .client import CronometerClient
 
@@ -20,34 +19,8 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source tree
     __version__ = "0.0.0"
 
-# Advertised in the initialize response per the MCP icons spec, so a client can
-# badge the connector with the Cronometer mark rather than guessing from the
-# hostname. Three sizes because the spec has clients pick the one that fits
-# their UI, and downscaling a single 256px asset to a 16px chip looks it.
-# PNG throughout: it is one of the two types an icon-rendering client MUST
-# support, and the URLs are same-origin, which the spec asks for so the icon
-# cannot leak a request to a third party.
-# Ref: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1040#issuecomment-3967699520
-_ICON_BASE = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
-_ICON_SIZES = (48, 96, 256)
-
 mcp = FastMCP(
     "cronometer",
-    icons=(
-        [
-            Icon(
-                src=f"{_ICON_BASE}/icon.png"
-                if size == 256
-                else f"{_ICON_BASE}/icon-{size}.png",
-                mimeType="image/png",
-                sizes=[f"{size}x{size}"],
-            )
-            for size in _ICON_SIZES
-        ]
-        if _ICON_BASE
-        else None
-    ),
-    website_url=_ICON_BASE or None,
     instructions=(
         "Read and write a Cronometer food diary: search foods, add and change "
         "diary entries, read daily nutrients and goals, record measurements, "
@@ -1599,12 +1572,12 @@ def main():
     """Run the server on stdin/stdout, or over HTTP.
 
     Over HTTP it has no login of its own, so it only listens on the local
-    machine and is only ever reached through auth-server.js.
+    machine and is only ever reached through an authenticating proxy.
     """
     import argparse
 
     # Load .env for local development (credentials). No-op if the file is
-    # missing. override=False keeps real environment variables (systemd,
+    # missing. override=False keeps real environment variables (the platform,
     # MCP client `env` blocks, etc.) authoritative over .env.
     from dotenv import find_dotenv, load_dotenv
 
@@ -1629,8 +1602,8 @@ def main():
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         raise SystemExit(
             f"refusing to listen on {args.host}: this server has no login of "
-            "its own. Keep it on the local machine and put auth-server.js in "
-            "front of it."
+            "its own. Keep it on the local machine and put an authenticating "
+            "proxy in front of it."
         )
 
     mcp.settings.host = args.host
