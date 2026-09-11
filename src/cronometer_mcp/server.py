@@ -4,10 +4,11 @@ import importlib.metadata
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .client import CronometerClient, CronometerError, check_environment
 
@@ -19,8 +20,41 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source tree
     __version__ = "0.0.0"
 
-mcp = FastMCP(
+
+def load_dotenv_for_local_dev() -> None:
+    """Load .env for local development. No-op when the file is missing.
+
+    Called from the entrypoints (main() and main.py), never at import:
+    importing this module must not mutate os.environ, or every test and tool
+    that imports it inherits whatever .env happens to be in the tree.
+    override=False keeps real environment variables (the platform, an MCP
+    client `env` block) authoritative over the file.
+    """
+    from dotenv import find_dotenv, load_dotenv
+
+    path = find_dotenv(usecwd=True)
+    if path and load_dotenv(path, override=False):
+        logger.info("Loaded .env from %s", path)
+
+
+@asynccontextmanager
+async def _lifespan(_server: "MCPServer"):
+    """Validate the environment once, when the server starts.
+
+    The check cannot live in main(): a hosting platform imports this module
+    and runs the server object itself, so main() never executes there. A
+    lifespan hook runs on every path -- platform, `fastmcp run`, and main() --
+    while still letting the module be imported without credentials (tests and
+    `fastmcp inspect` do exactly that).
+    """
+    check_environment()
+    yield None
+
+
+mcp = MCPServer(
     "cronometer",
+    version=__version__,
+    lifespan=_lifespan,
     instructions=(
         "Read and write a Cronometer food diary: search foods, add and change "
         "diary entries, read daily nutrients and goals, record measurements, "
@@ -30,10 +64,6 @@ mcp = FastMCP(
         "entries can be added, changed and deleted; notes can only be rewritten."
     ),
 )
-
-# FastMCP has no version argument, and the server underneath falls back to the
-# MCP SDK's own version, so initialize was reporting the SDK's number as ours.
-mcp._mcp_server.version = __version__
 
 _client: CronometerClient | None = None
 
@@ -1569,30 +1599,16 @@ def date_module_today() -> date:
 
 
 def main():
-    """Run the server over streamable HTTP, or on stdin/stdout.
+    """Run the server from the console script.
 
-    HTTP is the default because that is how the server is deployed: the
-    hosting platform terminates OAuth and forwards to this process, so it
-    must bind an address the platform can reach, not just localhost. Use
-    --transport stdio for a local MCP client.
+    A hosting platform does not use this: it imports `mcp` from this module
+    and drives the transport itself, so keep anything the server needs out of
+    here (see load_dotenv_for_local_dev and _lifespan above). This exists for
+    running the server yourself, over HTTP or on stdin/stdout.
     """
     import argparse
 
-    # Load .env for local development (credentials). No-op if the file is
-    # missing. override=False keeps real environment variables (the platform,
-    # MCP client `env` blocks, etc.) authoritative over .env.
-    from dotenv import find_dotenv, load_dotenv
-
-    dotenv_path = find_dotenv(usecwd=True)
-    if dotenv_path and load_dotenv(dotenv_path, override=False):
-        logger.info("Loaded .env from %s", dotenv_path)
-
-    # Refuse to start on a half-configured deploy rather than serving tools
-    # that fail one by one at call time.
-    try:
-        check_environment()
-    except CronometerError as exc:
-        raise SystemExit(str(exc)) from exc
+    load_dotenv_for_local_dev()
 
     parser = argparse.ArgumentParser(prog="cronometer-mcp")
     parser.add_argument(
@@ -1600,11 +1616,10 @@ def main():
         choices=("streamable-http", "stdio"),
         default=os.getenv("MCP_TRANSPORT", "streamable-http"),
     )
-    # 0.0.0.0 so the platform's router can reach the container. There is no
-    # login in front of this process other than the platform's own, so do not
-    # expose the port to anything but the platform.
+    # 0.0.0.0 so a container platform's router can reach the process. This
+    # server has no login of its own, so never expose that port directly.
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
-    # PORT is what the platform injects; MCP_PORT stays as a legacy fallback.
+    # PORT is what container platforms inject; MCP_PORT is the legacy name.
     parser.add_argument(
         "--port",
         type=int,
@@ -1612,14 +1627,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Surface a misconfigured environment as a startup error here too. The
+    # lifespan check would catch it, but only once a client connects.
+    try:
+        check_environment()
+    except CronometerError as exc:
+        raise SystemExit(str(exc)) from exc
+
     if args.transport == "stdio":
         mcp.run(transport="stdio")
         return
 
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
     logger.info("Listening on http://%s:%d/mcp", args.host, args.port)
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

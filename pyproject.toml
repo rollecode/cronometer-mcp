@@ -12,8 +12,9 @@ requires-python = ">=3.12"
 keywords = ["cronometer", "mcp", "nutrition", "health", "model-context-protocol"]
 
 dependencies = [
-    # <2 until the MCPServer migration: 2.x moved mcp.server.fastmcp
-    "mcp>=1.29.0,<2",
+    # 2.x is required by the hosting platform's FastMCP loader, which only
+    # recognises fastmcp.FastMCP or mcp.server.mcpserver.MCPServer.
+    "mcp>=2.0.0,<3",
     "httpx[socks]>=0.27.0",
     "python-dotenv>=1.0.0",
     "tzdata>=2024.1",
