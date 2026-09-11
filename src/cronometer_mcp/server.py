@@ -1569,10 +1569,12 @@ def date_module_today() -> date:
 
 
 def main():
-    """Run the server on stdin/stdout, or over HTTP.
+    """Run the server over streamable HTTP, or on stdin/stdout.
 
-    Over HTTP it has no login of its own, so it only listens on the local
-    machine and is only ever reached through an authenticating proxy.
+    HTTP is the default because that is how the server is deployed: the
+    hosting platform terminates OAuth and forwards to this process, so it
+    must bind an address the platform can reach, not just localhost. Use
+    --transport stdio for a local MCP client.
     """
     import argparse
 
@@ -1595,23 +1597,24 @@ def main():
     parser = argparse.ArgumentParser(prog="cronometer-mcp")
     parser.add_argument(
         "--transport",
-        choices=("stdio", "http"),
-        default=os.getenv("MCP_TRANSPORT", "stdio"),
+        choices=("streamable-http", "stdio"),
+        default=os.getenv("MCP_TRANSPORT", "streamable-http"),
     )
-    parser.add_argument("--host", default=os.getenv("MCP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("MCP_PORT", "8430")))
+    # 0.0.0.0 so the platform's router can reach the container. There is no
+    # login in front of this process other than the platform's own, so do not
+    # expose the port to anything but the platform.
+    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
+    # PORT is what the platform injects; MCP_PORT stays as a legacy fallback.
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("PORT") or os.getenv("MCP_PORT") or "8430"),
+    )
     args = parser.parse_args()
 
     if args.transport == "stdio":
         mcp.run(transport="stdio")
         return
-
-    if args.host not in ("127.0.0.1", "::1", "localhost"):
-        raise SystemExit(
-            f"refusing to listen on {args.host}: this server has no login of "
-            "its own. Keep it on the local machine and put an authenticating "
-            "proxy in front of it."
-        )
 
     mcp.settings.host = args.host
     mcp.settings.port = args.port

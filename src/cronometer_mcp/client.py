@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import tempfile
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
@@ -38,11 +39,28 @@ _ACCOUNT_TZ_ENV = "CRONOMETER_ACCOUNT_TZ"
 # Cache the auth token across processes to avoid /api/v2/login rate limits.
 # Cronometer throttles repeated logins per account; reusing a sessionKey lets
 # short-lived CLI invocations behave like a long-running app.
-_DEFAULT_SESSION_PATH = (
-    Path(os.getenv("XDG_CACHE_HOME") or Path.home() / ".cache")
-    / "cronometer-mcp"
-    / "session.json"
-)
+#
+# On a container platform this directory is ephemeral and usually empty on
+# boot: the cache is an optimisation, never a requirement. A cold start just
+# logs in once. Every read and write below already tolerates failure, so a
+# read-only or missing cache directory degrades instead of crashing.
+def _default_cache_dir() -> Path:
+    """Base directory for the session cache.
+
+    CRONOMETER_CACHE_DIR wins, then XDG_CACHE_HOME, then ~/.cache. Falls back
+    to the system temp dir because a container can run without HOME set, and
+    Path.home() raises rather than returning anything usable there.
+    """
+    explicit = os.getenv("CRONOMETER_CACHE_DIR") or os.getenv("XDG_CACHE_HOME")
+    if explicit:
+        return Path(explicit)
+    try:
+        return Path.home() / ".cache"
+    except RuntimeError:
+        return Path(tempfile.gettempdir())
+
+
+_DEFAULT_SESSION_PATH = _default_cache_dir() / "cronometer-mcp" / "session.json"
 
 # Auth block sent with every request (mimics the Android app)
 _APP_AUTH_TEMPLATE = {
