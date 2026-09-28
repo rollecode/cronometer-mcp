@@ -31,8 +31,12 @@ except importlib.metadata.PackageNotFoundError:  # running from a source tree
 _ICON_BASE = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
 _ICON_SIZES = (48, 96, 256)
 
+# The SDK's 30-minute default kills sessions of chats left idle, and their next call fails.
+SESSION_IDLE_TIMEOUT = 24 * 3600
+
 mcp = FastMCP(
     "cronometer",
+    session_idle_timeout=SESSION_IDLE_TIMEOUT,
     icons=(
         [
             Icon(

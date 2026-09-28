@@ -1,3 +1,7 @@
+### 1.10.1: 2026-09-28
+
+* Keep idle sessions for 24 hours
+
 ### 1.10.0: 2026-09-11
 
 * get_food_details reports nutrients per serving, as edits take them

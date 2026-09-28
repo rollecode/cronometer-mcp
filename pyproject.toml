@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cronometer-mcp"
-version = "1.10.0"
+version = "1.10.1"
 description = "MCP server for Cronometer, read and write your food diary"
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ keywords = ["cronometer", "mcp", "nutrition", "health", "model-context-protocol"
 
 dependencies = [
     # <2 until the MCPServer migration: 2.x moved mcp.server.fastmcp
-    "mcp>=1.29.0,<2",
+    "mcp>=1.30.0,<2",
     "httpx[socks]>=0.27.0",
     "python-dotenv>=1.0.0",
     "tzdata>=2024.1",
