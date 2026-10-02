@@ -1,3 +1,8 @@
+### 1.11.0: 2026-10-02
+
+* Page results larger than 20 000 tokens
+* Add get_result_page to page, filter and narrow them
+
 ### 1.10.1: 2026-09-28
 
 * Keep idle sessions for 24 hours

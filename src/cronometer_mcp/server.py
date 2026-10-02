@@ -10,6 +10,7 @@ from datetime import time as dtime
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Icon
 
+from . import paging
 from .client import CronometerClient
 
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +66,7 @@ mcp = FastMCP(
 # FastMCP has no version argument, and the server underneath falls back to the
 # MCP SDK's own version, so initialize was reporting the SDK's number as ours.
 mcp._mcp_server.version = __version__
+paging.register(mcp)
 
 _client: CronometerClient | None = None
 
@@ -96,7 +98,7 @@ def _parse_time(t: str | None) -> dtime | None:
 
 def _ok(data: dict) -> str:
     """Wrap a successful response."""
-    return json.dumps({"status": "success", **data}, indent=2)
+    return paging.fit({"status": "success", **data})
 
 
 _WRITE = {

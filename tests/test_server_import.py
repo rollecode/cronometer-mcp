@@ -34,6 +34,7 @@ EXPECTED_TOOLS = {
     "get_nutrition_scores",
     "get_profile",
     "get_recent_foods",
+    "get_result_page",
     "get_streak",
     "update_recipe",
     "update_custom_food",
