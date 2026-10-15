@@ -538,6 +538,14 @@ app.all('/mcp{/*path}', cors, authorizeRequest, async (req, res) => {
   const watched = !['GET', 'HEAD', 'DELETE'].includes(req.method);
   const deadline = watched ? CALL_TIMEOUT_MS : 0;
   const abort = new AbortController();
+  let reader;
+
+  // A client that hangs up must release the upstream socket too, or idle GET
+  // streams pile up until the server runs out of file descriptors.
+  res.on('close', () => {
+    abort.abort();
+    reader?.cancel().catch(() => {});
+  });
 
   try {
     const upstream = await withDeadline(
@@ -584,7 +592,7 @@ app.all('/mcp{/*path}', cors, authorizeRequest, async (req, res) => {
       res.end(text);
       return;
     }
-    const reader = upstream.body.getReader();
+    reader = upstream.body.getReader();
     for (;;) {
       // The deadline covers each read, so it measures silence rather than the
       // total time a legitimately slow, chatty call is allowed to take.

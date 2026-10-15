@@ -1,3 +1,7 @@
+### 1.11.1: 2026-10-15
+
+* Fix leaked upstream connections in proxy
+
 ### 1.11.0: 2026-10-02
 
 * Page results larger than 20 000 tokens
