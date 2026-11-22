@@ -12,6 +12,7 @@ from mcp.types import Icon
 
 from . import paging
 from .client import CronometerClient
+from .compact import LogDetail, compact_day
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,7 +148,11 @@ def _err(e: Exception) -> str:
         "openWorldHint": True,
     }
 )
-def get_food_log(date: str | None = None, include_untracked: bool = True) -> str:
+def get_food_log(
+    date: str | None = None,
+    include_untracked: bool = True,
+    detail: LogDetail = LogDetail.FULL,
+) -> str:
     """Get all diary entries for a given date.
 
     Returns every food entry logged for the day. Each "Serving" entry is
@@ -185,6 +190,9 @@ def get_food_log(date: str | None = None, include_untracked: bool = True) -> str
         date: Date as YYYY-MM-DD (defaults to today).
         include_untracked: Leave true for everything eaten. False restricts the
             summary to nutrients with targets, matching the app's own summary.
+        detail: "compact" returns only energy_summary, food and exercise rows,
+            and totals for energy, protein, sodium, sugars, saturated fat,
+            water and caffeine. It ignores include_untracked.
     """
     try:
         client = _get_client()
@@ -203,9 +211,20 @@ def get_food_log(date: str | None = None, include_untracked: bool = True) -> str
                 "remaining_kcal": round(target - consumed),
             }
 
+        is_compact = detail == LogDetail.COMPACT
         nutrition_summary = client.get_consumed_nutrients(
-            day, include_untracked=include_untracked
+            # Sugars, saturated fat and caffeine are usually untracked
+            day, include_untracked=include_untracked or is_compact
         )
+
+        if is_compact:
+            return _ok(
+                {
+                    "date": date or str(date_module_today()),
+                    "energy_summary": energy_summary,
+                    **compact_day(data, nutrition_summary["nutrients"]),
+                }
+            )
 
         return _ok(
             {

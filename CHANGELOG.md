@@ -1,3 +1,7 @@
+### 1.12.0: 2026-11-22
+
+* Add compact detail level to get_food_log
+
 ### 1.11.1: 2026-10-15
 
 * Fix leaked upstream connections in proxy

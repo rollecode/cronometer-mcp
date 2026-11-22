@@ -36,7 +36,7 @@ Read and write your Cronometer food diary from Claude.ai and Claude Code. It tal
 
 | Tool | What you get |
 | --- | --- |
-| `get_food_log` | Everything in the diary for one day. Each food comes with its name, where it came from, the serving size, how many servings, and what that food added to your nutrients. You also get calories (target, eaten, left) and totals for every nutrient you track |
+| `get_food_log` | Everything in the diary for one day. Each food comes with its name, where it came from, the serving size, how many servings, and what that food added to your nutrients. You also get calories (target, eaten, left) and totals for every nutrient you track. `detail: "compact"` returns just the rows and seven totals |
 | `get_daily_nutrition` | Totals for every nutrient eaten that day, each flagged tracked or not |
 | `get_nutrition_scores` | Cronometer's nutrition scores |
 | `search_foods` | Search the food database |
